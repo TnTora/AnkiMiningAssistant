@@ -2,6 +2,7 @@ import json
 import urllib.request
 import shlex
 import subprocess
+import os
 from datetime import datetime
 from time import sleep
 
@@ -24,6 +25,11 @@ def invoke(action, **params):
     return response['result']
 
 
+def get_media_dir():
+    results = invoke("getMediaDirPath")
+    return results
+
+
 def get_last_note():
     results = invoke("findNotes", query="deck:Mining added:1")
     if results:
@@ -44,6 +50,7 @@ def update_note(note_id, fields, tags=""):
 def record(session, audio=False, screenshot=False, tags=""):
     curr_time = datetime.now()
     last_note = get_last_note()
+    media_dir = get_media_dir()
     update_fields = {}
 
     note_time = datetime.fromtimestamp(last_note/1000)
@@ -62,9 +69,9 @@ def record(session, audio=False, screenshot=False, tags=""):
 
     if screenshot:
         try:
-            subprocess.run(shlex.split(f"screencapture -o -i -J window '/Users/ludo/Library/Application Support/Anki2/User 1/collection.media/VN-{session}_{curr_time}.jpg'"))
-            subprocess.run(shlex.split(f"ffmpeg -i '/Users/ludo/Library/Application Support/Anki2/User 1/collection.media/VN-{session}_{curr_time}.jpg' '/Users/ludo/Library/Application Support/Anki2/User 1/collection.media/VN-{session}_{curr_time}.webp'"))
-            subprocess.run(shlex.split(f"rm '/Users/ludo/Library/Application Support/Anki2/User 1/collection.media/VN-{session}_{curr_time}.jpg'"))
+            subprocess.run(shlex.split(f"screencapture -o -i -J window '{media_dir}/VN-{session}_{curr_time}.jpg'"))
+            subprocess.run(shlex.split(f"ffmpeg -i '{media_dir}/VN-{session}_{curr_time}.jpg' '{media_dir}/VN-{session}_{curr_time}.webp'"))
+            subprocess.run(shlex.split(f"rm '{media_dir}/VN-{session}_{curr_time}.jpg'"))
 
             update_fields["Picture"] = f'<img alt="snapshot" src="VN-{session}_{curr_time}.webp">'
         except KeyboardInterrupt:
@@ -78,7 +85,7 @@ def record(session, audio=False, screenshot=False, tags=""):
         print("Recording...")
 
         try:
-            subprocess.run(shlex.split(f"sox -t coreaudio 'BlackHole 2ch' '/Users/ludo/Library/Application Support/Anki2/User 1/collection.media/VN-{session}_{curr_time}.mp3'"))
+            subprocess.run(shlex.split(f"sox -t coreaudio 'BlackHole 2ch' '{media_dir}/VN-{session}_{curr_time}.mp3'"))
         except KeyboardInterrupt:
             update_fields["SentenceAudio"] = f"[sound:VN-{session}_{curr_time}.mp3]"
 
