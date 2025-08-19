@@ -4,7 +4,7 @@ import threading
 # import shlex
 # import subprocess
 import os
-import sys
+# import sys
 import numpy as np
 import soundcard as sc
 import soundfile as sf
@@ -13,15 +13,17 @@ from datetime import datetime
 from time import sleep, time
 from PIL import ImageGrab  # , Image
 
+import torch
+import torchaudio
+from silero_vad import load_silero_vad
+
 import AppKit
 import Quartz
 from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate
 import ApplicationServices
 import ScriptingBridge
 
-from AggregateDevice import createAggregateDevice, destroyAggregateDevice, isloopback
-
-from test5 import capture_screenshot
+from AggregateDevice import isloopback
 
 """
 Bridging to undocumented private API to get CGWindowID from AXUIElement Window
@@ -62,13 +64,13 @@ def on_click(x, y, button, pressed):
 
 
 hotkeys_enabled = True
-stop_recording = None
-recording_ready = None
+recording = None
+monitoringAudio = None
 
 
 def recordHotKeyBoth():
-    if stop_recording is not None:
-        stop_recording.set()
+    if recording is not None:
+        recording.set()
     if hotkeys_enabled:
         thread = threading.Thread(
             target=record,
@@ -79,8 +81,8 @@ def recordHotKeyBoth():
 
 
 def recordHotKeyAudio():
-    if stop_recording is not None:
-        stop_recording.set()
+    if recording is not None:
+        recording.set()
     if hotkeys_enabled:
         thread = threading.Thread(
             target=record,
@@ -263,28 +265,108 @@ def update_note(note_id, fields, tags=""):
 
 
 def recordAudio(filepath):
-    global stop_recording, recording_ready
+    global recording
     SAMPLERATE = 44100
     INTERVAL_DURATION = 0.1
     data = None
     try:
-        stop_recording = threading.Event()
+        recording = threading.Event()
         with mic.recorder(samplerate=SAMPLERATE) as r:
-            recording_ready.set()
             while True:
                 _data = r.record(numframes=int(SAMPLERATE*INTERVAL_DURATION))
                 if data is None:
                     data = _data
                 else:
                     data = np.concatenate((data, _data))
-                if stop_recording.is_set():
-                    stop_recording = None
+                if recording.is_set():
+                    recording = None
                     break
     except KeyboardInterrupt:
         pass
     finally:
         print("Saving audio file")
         sf.write(file=filepath, data=data, samplerate=SAMPLERATE)
+
+
+model = load_silero_vad()
+
+
+def monitorSystemAudio(widget, storage, info):
+    global monitoringAudio
+    PAUSE = 0
+    SAMPLERATE = 44100
+    INTERVAL_DURATION = 512/16000  # 0.1
+    resampler = torchaudio.transforms.Resample(SAMPLERATE, 16000)
+    try:
+        monitoringAudio = threading.Event()
+        data = np.empty((0, mic.channels))
+        # temp_data = np.empty((0, mic.channels))
+        with mic.recorder(samplerate=SAMPLERATE) as r:
+            while True:
+                if monitoringAudio.is_set():
+                    monitoringAudio = None
+                    break
+
+                _data = r.record(numframes=int(SAMPLERATE*INTERVAL_DURATION))
+
+                data_tensor = torch.t(torch.from_numpy(_data))  # .reshape((2, -1))
+
+                if data_tensor.size(0) > 1:
+                    data_tensor = data_tensor.mean(dim=0, keepdim=True)
+
+                if SAMPLERATE != 16000:
+                    data_tensor = resampler(data_tensor)
+
+                speech_prob = model(data_tensor, 16000).item()
+                print(f"prob: {speech_prob};    PAUSE: {PAUSE}")
+
+                if PAUSE > 3:
+                    PAUSE = 0
+                    time = data.shape[0]/SAMPLERATE
+                    if time > 0.5:
+                        curr_time = datetime.now()
+                        if len(storage) > 4:
+                            del storage[0]
+                            del info[0]
+                        storage.append(data)
+                        info.append(f"[{curr_time.hour}:{curr_time.minute}:{curr_time.second}] {round(time, 3)}")
+                        print(info)
+                        widget.clear()
+                        widget.addItems(info)
+                        widget.item(len(info)-1).setSelected(True)
+                    data = np.empty((0, mic.channels))
+                    # temp_data = np.empty((0, mic.channels))
+                    # break
+
+                # if PAUSE > 2:
+                #     temp_data = np.empty((0, mic.channels))
+
+                # temp_data = np.concatenate((temp_data, _data))
+
+                if speech_prob < 0.5:
+                    PAUSE += INTERVAL_DURATION
+                    continue
+                else:
+                    PAUSE = 0
+                    data = np.concatenate((data, _data))
+                    # temp_data = np.empty((0, mic.channels))
+
+                # if data is None:
+                #     data = _data
+                # else:
+                #     data = np.concatenate((data, _data))
+    except KeyboardInterrupt:
+        pass
+
+
+def startMonitoring(widget, storage, info):
+    if monitoringAudio is not None:
+        monitoringAudio.set()
+    else:
+        thread = threading.Thread(
+            target=monitorSystemAudio,
+            args=(widget, storage, info))
+        thread.start()
 
 
 def record(session, audio=False, screenshot=False, tags=""):
@@ -323,26 +405,20 @@ def record(session, audio=False, screenshot=False, tags=""):
                 activateWindow(app, proc, selected_win_AX)
 
             st = time()
-            if native_capture:
-                capture_screenshot(os.path.join(media_dir, f"VN-{session}_{curr_time}.webp"), selected_win)
-            else:
-                rect = (int(bounds["X"]), int(bounds["Y"]), int(bounds["X"]+bounds["Width"]), int(bounds["Y"]+bounds["Height"]))
-                im = ImageGrab.grab(bbox=rect)
-                im.save(os.path.join(media_dir, f"VN-{session}_{curr_time}.webp"))
+            rect = (int(bounds["X"]), int(bounds["Y"]), int(bounds["X"]+bounds["Width"]), int(bounds["Y"]+bounds["Height"]))
+            im = ImageGrab.grab(bbox=rect)
             fin = time()
             # im = ImageGrab.grab(bbox=selected_win.rect)
 
             print(f"took {fin-st}s)")
 
-            # im.save(os.path.join(media_dir, f"VN-{session}_{curr_time}.webp"))
+            im.save(os.path.join(media_dir, f"VN-{session}_{curr_time}.webp"))
 
             update_fields["Picture"] = f'<img alt="snapshot" src="VN-{session}_{curr_time}.webp">'
         except KeyboardInterrupt:
             pass
 
     if audio:
-        global recording_ready
-        recording_ready = threading.Event()
         # app.activateWithOptions_(Quartz.NSApplicationActivateIgnoringOtherApps)
         # selected_win.activate()
         if not isCurrentlyActive(app):
@@ -351,13 +427,12 @@ def record(session, audio=False, screenshot=False, tags=""):
             thread = threading.Thread(
                 target=recordAudio,
                 args=(os.path.join(media_dir, f"VN-{session}_{curr_time}.mp3"),))
-            thread.start()
             mouse_controller.position = (
                 bounds["X"]+(button["x_rel"]*bounds["Width"]),
                 bounds["Y"]+(button["y_rel"]*bounds["Height"])
             )
-            # sleep(0.1)
-            recording_ready.wait(5)
+            sleep(0.1)
+            thread.start()
             mouse_controller.click(mouse.Button.left, 1)
             thread.join()
         else:
@@ -383,101 +458,6 @@ def updateSessions():
         json.dump(sessions, f, indent=4)
 
 
-def SessionConfig(new=False):
-    global sessions, session_name, button, app, proc, selected_win, selected_win_AX
-    while True:
-        if not new:
-            print(
-                f"{"-"*50}\n\n"
-                f"[1] Session Name: {session_name}\n"
-                f"[2] Application: {app.localizedName()}\n"
-                f"    Window Title: {selected_win["kCGWindowName"]}\n"
-                f"[3] Audio Button: {button}\n"
-                f"[b] Back\n"
-                f"[q] Quit\n"
-                f"\n{"-"*50}"
-            )
-            type_selection = str(input("Choose: ")).strip()
-        else:
-            type_selection = None
-
-        if type_selection == "b":
-            return main()
-        if type_selection == "q":
-            return
-
-        if new or type_selection == "1":
-            old_session_name = session_name
-            session_name = input("Write session name: ").strip()
-            sessions.pop(old_session_name)
-
-        if new or type_selection == "2":
-            apps = getAllApps()
-            apps_names = [a.localizedName() for a in apps]
-
-            for i in range(len(apps_names)):
-                print(f"{i}: {apps_names[i]}")
-
-            while True:
-                try:
-                    idx = int(input("Choose app: "))
-                    break
-                except Exception:
-                    pass
-
-            app = apps[idx]
-            print(f"\napp: {app}")
-            proc = getAS_Process(se, app)
-            print(f"process: {proc.name()}")
-
-            app_windows = getAppWindows(app)
-            app_windows_AX = getAppAXWindows(app)
-
-            if len(app_windows) == 1:
-                selected_win = app_windows[0]
-            else:
-                for i in range(len(app_windows)):
-                    print(f"{i}: {app_windows[i]["kCGWindowName"]}")
-                while True:
-                    try:
-                        idx = int(input("Choose window: "))
-                        break
-                    except Exception:
-                        pass
-                selected_win = app_windows[idx]
-
-            # print(app_windows_AX)
-            selected_win_AX = getAXWindowFromWindowInfo(app_windows_AX, selected_win)
-
-            if selected_win_AX is None:
-                print("Failed to get window element")
-                sys.exit()
-
-        if new or type_selection == "3":
-            input("Press ENTER then click on the button to replay sentence audio")
-            activateWindow(app, proc, selected_win_AX)
-            # Collect events until released
-            with mouse.Listener(on_click=on_click) as listener:
-                listener.join()
-
-            button = {}
-            button["x_rel"] = (targetX - selected_win["kCGWindowBounds"]["X"]) / selected_win["kCGWindowBounds"]["Width"]
-            button["y_rel"] = (targetY - selected_win["kCGWindowBounds"]["Y"]) / selected_win["kCGWindowBounds"]["Height"]
-
-        if type_selection not in ["1", "2", "3", None]:
-            print("invalid choice")
-            continue
-
-        sessions[session_name] = {
-            "AppName": app.localizedName(),
-            "WindowTitle": selected_win["kCGWindowName"],
-            "Button": button
-        }
-        updateSessions()
-
-
-input("Make sure audio output device and terminal permission are set up correctly then press ENTER")
-
 directory = os.path.split(os.path.realpath(__file__))[0]
 
 if not os.path.isfile(os.path.join(directory, "sessions.json")):
@@ -489,7 +469,6 @@ with open(os.path.join(directory, "sessions.json")) as f:
         sessions = json.load(f)
     except ValueError:
         sessions = {}
-        # json.dump(sessions, f, indent=4)
 
 
 try:
@@ -509,151 +488,23 @@ session = None
 session_name = None
 button = None
 
-if len(sessions) > 0:
-    while True:
-        key_list = list(sessions.keys())
-
-        print("-"*50)
-        for i in range(len(key_list)):
-            print(f"[{i}]: {key_list[i]}")
-        print("-"*50)
-
-        print(
-            "To select a session type the corresponding index\n"
-            "To create a new session type 'n'\n"
-            "To quit type 'q'\n"
-        )
-        user_input = input("Input: ").strip().lower()
-        print("-"*50)
-
-        if not user_input:
-            continue
-
-        if user_input == "q":
-            sys.exit()
-
-        if user_input == "n":
-            break
-
-        try:
-            idx = int(user_input)
-        except ValueError:
-            try:
-                idx = int(user_input)
-            except ValueError:
-                print("Invalid input")
-                continue
-
-        if idx < 0 or idx > len(key_list)-1:
-            print("\nInvalid index")
-            continue
-
-        session_name = key_list[idx]
-        session = sessions[session_name]
-        break
-
 se = getAS_SystemEvents()
-
-if session is None:
-    SessionConfig(new=True)
-else:
-    apps = getAllApps()
-    apps_names = [a.localizedName() for a in apps]
-
-    app = [a for a in apps if a.localizedName() == session["AppName"]][0]
-    print(f"\napp: {app}")
-    proc = getAS_Process(se, app)
-    print(f"process: {proc.name()}")
-
-    app_windows = getAppWindows(app)
-    app_windows_AX = getAppAXWindows(app)
-
-    if len(app_windows) == 1:
-        selected_win = app_windows[0]
-    else:
-        selected_win = [win for win in app_windows if win["kCGWindowName"] == session["WindowTitle"]][0]
-
-    selected_win_AX = getAXWindowFromWindowInfo(app_windows_AX, selected_win)
-
-    if selected_win_AX is None:
-        print("Failed to get window element")
-        sys.exit()
-
-    button = session["Button"]
-
-print(f"\nselected_win: {selected_win}\n\nselected_win_AX: {selected_win_AX}\n")
-print("-"*50)
-
-
-aggr_device = createAggregateDevice()
+app = None
+proc = None
+selected_win_AX = None
 
 mic = None
-mikes = sc.all_microphones()
-print("\nmikes:")
-for i in range(len(mikes)):
-    loopback = isloopback(mikes[i].id)
-    if loopback:
-        mic = mikes[i]
-    print(f"{i}: {mikes[i]}, is loopback: {loopback}")
-print(f"\nSelected mic: {mic}")
+
+
+def get_mics():
+    mikes = sc.all_microphones()
+    # print("\nmikes:")
+    for i in range(len(mikes)):
+        loopback = isloopback(mikes[i].id)
+        if loopback:
+            return mikes, i
+    return mikes, None
 
 
 use_button = True
-native_capture = True
-
-
-def main():
-    global tag, use_button, native_capture
-
-    hotkeys.start()
-    hotkeys.wait()
-
-    while True:
-        tag = "VN "+session_name.replace(" ", "_")
-
-        print(
-            f"{"-"*50}"
-            f"\n\nSession Name: {session_name}\n"
-            f"Application: {app.localizedName()}\n"
-            f"Window Title: {selected_win["kCGWindowName"]}\n"
-            f"Audio Button: {button}\n"
-            f"native_capture: {native_capture}\n"
-            f"Use Audio Button: {use_button}\n\n"
-            f"{"-"*50}"
-        )
-        type_selection = str(input(
-            "\n[1] Screenshot\n"
-            "[2] Audio\n"
-            "[3] Both\n"
-            "[b] Switch button on/off\n"
-            "[m] Modify Session Settings\n"
-            "[q] Quit\n"
-            "Choose: ")).strip()
-
-        if not type_selection:
-            continue
-        if type_selection[-1] == "N":
-            tag += "NSFW "
-            type_selection = type_selection[0]
-        if type_selection == "2":
-            record(session_name, audio=True, tags=tag)
-        elif type_selection == "1":
-            record(session_name, screenshot=True, tags=tag)
-        elif type_selection == "3":
-            record(session_name, audio=True, screenshot=True, tags=tag)
-        elif type_selection == "m":
-            return SessionConfig()
-        elif type_selection == "b":
-            use_button = not use_button
-        elif type_selection == "c":
-            native_capture = not native_capture
-        elif type_selection == "q":
-            break
-        else:
-            print("invalid choice")
-
-
-main()
-hotkeys.stop()
-if aggr_device:
-    destroyAggregateDevice()
+tag = ""
