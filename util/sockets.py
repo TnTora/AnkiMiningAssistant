@@ -108,7 +108,7 @@ class WebsocketManagerThread(threading.Thread):
                         finally:
                             if isinstance(sentence, str):
                                 text_stored[sentence] = line_time
-                                ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait=0.2))
+                                ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
             except Exception:
                 # traceback.print_exc()

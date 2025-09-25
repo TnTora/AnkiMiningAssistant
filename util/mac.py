@@ -4,8 +4,9 @@ from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
-    NSBitmapImageFileTypePNG,
-    # NSBitmapImageFileTypeJPEG,
+    # NSBitmapImageFileTypePNG,
+    NSBitmapImageFileTypeJPEG,
+    NSImageCompressionFactor,
     NSBitmapImageRep,
     NSBundle,
     NSWorkspace,
@@ -14,7 +15,7 @@ from AppKit import (
 import threading
 from time import sleep
 from io import BytesIO
-from PIL import Image
+# from PIL import Image
 from math import sqrt
 
 """
@@ -164,6 +165,7 @@ try:
 
     def capture_screenshot(save_path: str, win):
         finish = threading.Event()
+        file_data = None
 
         def shareable_content_completion_handler(shareable_content, error):
 
@@ -207,14 +209,18 @@ try:
             )
 
         def capture_image_completion_handler(image, error):
+            nonlocal file_data
+
             bitmap_rep = NSBitmapImageRep(CGImage=image)
             data = bitmap_rep.representationUsingType_properties_(
-                NSBitmapImageFileTypePNG, None
+                NSBitmapImageFileTypeJPEG, {NSImageCompressionFactor: 0.5}
             )
+
             file_data = BytesIO(data)
-            dt = Image.open(file_data)
-            dt.save(save_path)
-            dt.close()
+            # img = Image.open(file_data)
+            # img.save(save_path_tmp)
+            # img.close()
+            # stored_data.append(data)
             # base_path, ext = os.path.splitext(save_path)
             # data.writeToFile_atomically_(save_path, True)
             # logging.info(f"Screenshot saved at {save_path}")
@@ -225,6 +231,7 @@ try:
         )
 
         finish.wait()
+        return file_data
 
 except ImportError:
     pass
