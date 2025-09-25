@@ -1,3 +1,4 @@
 .DS_Store
 .venv-3.12
 .venv-3.13
+__pycache__
