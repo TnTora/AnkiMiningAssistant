@@ -4,9 +4,9 @@ from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
-    # NSBitmapImageFileTypePNG,
-    NSBitmapImageFileTypeJPEG,
-    NSImageCompressionFactor,
+    NSBitmapImageFileTypePNG,
+    # NSBitmapImageFileTypeJPEG,
+    # NSImageCompressionFactor,
     NSBitmapImageRep,
     NSBundle,
     NSWorkspace,
@@ -15,7 +15,7 @@ from AppKit import (
 import threading
 from time import sleep
 from io import BytesIO
-# from PIL import Image
+from PIL import Image
 from math import sqrt
 
 """
@@ -166,6 +166,7 @@ try:
     def capture_screenshot(save_path: str, win):
         finish = threading.Event()
         file_data = None
+        buffered = BytesIO()
 
         def shareable_content_completion_handler(shareable_content, error):
 
@@ -212,12 +213,19 @@ try:
             nonlocal file_data
 
             bitmap_rep = NSBitmapImageRep(CGImage=image)
+            # data = bitmap_rep.representationUsingType_properties_(
+            #     NSBitmapImageFileTypeJPEG, {NSImageCompressionFactor: 0.5}
+            # )
             data = bitmap_rep.representationUsingType_properties_(
-                NSBitmapImageFileTypeJPEG, {NSImageCompressionFactor: 0.5}
+                NSBitmapImageFileTypePNG, None
             )
 
+            print(f"image size: {len(data)}")
             file_data = BytesIO(data)
+            with Image.open(file_data) as img:
+                img.save(buffered, format="WebP", quality=80)
             # img = Image.open(file_data)
+            # img.save(buffered, format="WebP")
             # img.save(save_path_tmp)
             # img.close()
             # stored_data.append(data)
@@ -231,7 +239,7 @@ try:
         )
 
         finish.wait()
-        return file_data
+        return buffered
 
 except ImportError:
     pass
