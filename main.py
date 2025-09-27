@@ -39,6 +39,7 @@ from util.mac import (
 )
 from util.sockets import WebsocketManagerThread
 import util.audio as audio
+import util.screenshot as screenshot
 
 
 class ConfirmationDialog(QDialog):
@@ -318,6 +319,8 @@ class MainWindow(QMainWindow):
 
     def set_mic(self, index):
         audio.mic = self.mikes[index]
+        if audio.buffer is None or audio.buffer.channels != audio.mic.channels:
+            audio.buffer = audio.AudioBuffer(channels=audio.mic.channels)
 
     def set_use_audio_button(self, state):
         print(f"state: {state}")
@@ -333,7 +336,22 @@ class MainWindow(QMainWindow):
         else:
             self.monitoring_button.setText("Start Monitoring Audio")
             self.audio_monitoring = False
-        audio.startMonitoringAudio(self.listwidget, self.audio_data, self.audio_info)
+        # audio.startMonitoringAudio(self.listwidget, self.audio_data, self.audio_info)
+        if audio.record_audio_buffer is None:
+            audio.record_audio_buffer = audio.recordAudioBuffer()
+            audio.record_audio_buffer.start()
+        else:
+            audio.record_audio_buffer.stop_recording()
+            audio.record_audio_buffer.join()
+            audio.record_audio_buffer = None
+
+        if screenshot.screenshot_manager is None:
+            screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=1)
+            screenshot.screenshot_manager.start()
+        else:
+            screenshot.screenshot_manager.stop_recording()
+            screenshot.screenshot_manager.join()
+            screenshot.screenshot_manager = None
 
     def getAudio(self):
         if self.audio_monitoring:
@@ -402,6 +420,9 @@ def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    if sys.platform == "darwin":
+        print("darwon")
+        window.raise_()
     app.exec()
     util.hotkeys.stop()
     destroyAggregateDevice()

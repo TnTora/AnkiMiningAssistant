@@ -121,9 +121,9 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
     update_fields = {}
 
     note_time = datetime.fromtimestamp(last_note/1000)
-    diff = (curr_time - note_time).seconds
+    diff = (curr_time - note_time).minutes
 
-    if diff > 5*60:
+    if diff > 5:
         signals.confirm.emit("Last note was added over 5 minutes ago. Are you sure it is the one you want to update?")
         condition.wait()
 
