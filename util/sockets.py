@@ -2,14 +2,48 @@ import websockets
 import threading
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import UserDict
 # import traceback
 
 from util.screenshot import _take_screenshot
 
 
+class LineStored:
+
+    def __init__(self, text):
+        self.text = text
+        self.next = None
+
+
+class LinesTempStorage(UserDict):
+
+    last_active_date = None
+    storage_time_limit = timedelta(minutes=0, seconds=20)
+    previous_line = None
+
+    def __setitem__(self, key, value):
+        if not isinstance(key, datetime):
+            raise TypeError("LinesTempStorage key must be of class datetime")
+        super().__setitem__(key, value)
+
+        if self.last_active_date is None:
+            last_active_date = datetime.now()
+        else:
+            last_active_date = self.last_active_date
+
+        to_remove = []
+        for key_time in self.data:
+            if last_active_date - key_time > self.storage_time_limit:
+                to_remove.append(key_time)
+            else:
+                break
+        for key_time in to_remove:
+            del self.data[key_time]
+
+
 text_received = None
-text_stored = {}
+text_stored = LinesTempStorage()
 
 
 class WebsocketManagerThread(threading.Thread):
@@ -107,7 +141,7 @@ class WebsocketManagerThread(threading.Thread):
                             sentence = msg
                         finally:
                             if isinstance(sentence, str):
-                                text_stored[sentence] = line_time
+                                text_stored[line_time] = sentence
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
             except Exception:
