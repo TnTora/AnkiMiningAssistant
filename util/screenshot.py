@@ -2,7 +2,8 @@ import threading
 from time import sleep
 from collections import UserDict
 from datetime import datetime, timedelta
-from util.util import win, session
+from PIL import Image
+import util.util as util
 from util.mac import capture_screenshot
 
 
@@ -32,6 +33,7 @@ class ImageTempStorage(UserDict):
 
 
 images_tmp = ImageTempStorage()
+screenshot_manager = None
 
 # def _take_screenshot(curr_time, wait=None):
 #     try:
@@ -61,16 +63,20 @@ images_tmp = ImageTempStorage()
 #         pass
 
 
-def _take_screenshot(curr_time: datetime, wait_sec=None):
+def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = None):
     try:
+
+        if curr_time is None:
+            curr_time = datetime.now()
+
         curr_time_str = curr_time.strftime('%Y-%m-%d_%H_%M_%S')
 
         if wait_sec is not None:
             sleep(wait_sec)
 
         # path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
-        path_tmp = f"{session}_{curr_time_str}.webp"
-        tmp_img = capture_screenshot(path_tmp, win)
+        path_tmp = f"{util.session}_{curr_time_str}.webp"
+        tmp_img = capture_screenshot(path_tmp, util.win)
         images_tmp[curr_time] = tmp_img
 
     except KeyboardInterrupt:
@@ -81,3 +87,26 @@ def take_screenshot():
     screenshot_thread = threading.Thread(target=_take_screenshot, daemon=True)
     screenshot_thread.start()
     return screenshot_thread
+
+
+class ScreenshotManager(threading.Thread):
+
+    def __init__(self, interval=1):
+        super().__init__()
+        self.stop_rec = threading.Event()
+        self.interval = interval
+
+    def stop_recording(self):
+        self.stop_rec.set()
+
+    def run(self):
+        while True:
+            if self.stop_rec.is_set():
+                break
+            take_screenshot()
+            sleep(self.interval)
+
+        for time in images_tmp:
+            with Image.open(images_tmp[time]) as img:
+                img.save(f"screenshots/{time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
+
