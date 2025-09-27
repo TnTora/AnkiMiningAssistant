@@ -6,13 +6,88 @@ import soundcard as sc
 import soundfile as sf
 from silero_vad import load_silero_vad
 from time import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 from util.AggregateDevice import isloopback
 
 
 monitoringAudio = None
 SAMPLERATE = 44100
+INTERVAL_DURATION = 512/16000  # 0.1
 mic = None
+buffer = None
+record_audio_buffer = None
+
+resampler = torchaudio.transforms.Resample(SAMPLERATE, 16000)
+
+
+class AudioBuffer:
+
+    storage_time_limit = timedelta(minutes=0, seconds=20)
+
+    def __init__(self, channels=2):
+        self.data = np.zeros((1, channels))
+        self.vad_res = np.zeros((1, 1))
+        self.channels = channels
+        self.storage_full = False
+        self.last_active_date = datetime.min
+        self.restart_date = datetime.max
+        self.inactive = False
+
+    def update(self, new_data, new_vad_res: float):
+        if self.storage_full:
+            self.data = np.delete(self.data, slice(0, int(SAMPLERATE*INTERVAL_DURATION)), axis=0)
+            self.vad_res = np.delete(self.vad_res, slice(0, int(SAMPLERATE*INTERVAL_DURATION)), axis=0)
+            self.data = np.concatenate((self.data, new_data))
+            self.vad_res = np.concatenate((self.vad_res, np.full((new_data.shape[0], 1), new_vad_res)))
+            return
+
+        audio_length = timedelta(seconds=self.data.shape[0] / SAMPLERATE)
+
+        if audio_length > self.storage_time_limit:
+            self.storage_full = True
+            self.data = np.delete(self.data, slice(0, int(SAMPLERATE*INTERVAL_DURATION)), axis=0)
+            self.vad_res = np.delete(self.vad_res, slice(0, int(SAMPLERATE*INTERVAL_DURATION)), axis=0)
+
+        self.data = np.concatenate((self.data, new_data))
+        self.vad_res = np.concatenate((self.vad_res, np.full((new_data.shape[0], 1), new_vad_res)))
+
+    def extract_line_audio(
+        self,
+        line_time,
+        next_line_time=None,
+    ):
+        line_start = None
+        line_end = None
+
+        if self.inactive:
+            curr_time = self.last_active_date
+        else:
+            curr_time = datetime.now()
+
+        data_copy = np.copy(self.data)
+
+        if next_line_time:
+            line_audio_length = next_line_time - line_time
+        else:
+            line_end = data_copy.shape[0]
+
+        if curr_time - self.restart_date > self.storage_time_limit:
+            self.last_active_date = datetime.min
+            self.restart_date = datetime.max
+            timing_adjustment = timedelta(seconds=0)
+        elif line_time > self.restart_date:
+            timing_adjustment = timedelta(seconds=0)
+        else:
+            timing_adjustment = self.restart_date - self.last_active_date
+
+        line_start = data_copy.shape[0] - ((curr_time - line_time) - timing_adjustment).total_seconds()*SAMPLERATE
+
+        if line_end is None:
+            line_end = line_start + line_audio_length*SAMPLERATE
+
+        data_copy = np.copy(data_copy[line_start:line_end, :])
+
+        return data_copy
 
 
 def get_mics():
@@ -55,7 +130,6 @@ PLAYBACK = False
 def monitorSystemAudio(widget, storage, info):
     global monitoringAudio
     PAUSE = 0
-    INTERVAL_DURATION = 512/16000  # 0.1
     resampler = torchaudio.transforms.Resample(SAMPLERATE, 16000)
     try:
         monitoringAudio = threading.Event()
@@ -143,3 +217,57 @@ def startMonitoringAudio(widget, storage, info):
             target=monitorSystemAudio,
             args=(widget, storage, info))
         thread.start()
+
+
+class recordAudioBuffer(threading.Thread):
+
+    def __init__(self):
+        super().__init__()
+        self.stop_rec = threading.Event()
+
+    def stop_recording(self):
+        self.stop_rec.set()
+
+    def run(self):
+        try:
+            PAUSE = 0
+            with mic.recorder(samplerate=SAMPLERATE) as r:
+                while True:
+
+                    if self.stop_rec.is_set():
+                        break
+
+                    if buffer.inactive:
+                        sleep(INTERVAL_DURATION)
+                        continue
+
+                    _data = r.record(numframes=int(SAMPLERATE*INTERVAL_DURATION))
+
+                    data_tensor = torch.from_numpy(_data).reshape((2, -1))
+
+                    if data_tensor.size(0) > 1:
+                        data_tensor = data_tensor.mean(dim=0, keepdim=True)
+
+                    if SAMPLERATE != 16000:
+                        data_tensor = resampler(data_tensor)
+
+                    speech_prob = model(data_tensor, 16000).item()
+                    print(f"prob: {speech_prob};    PAUSE: {PAUSE}")
+
+                    if speech_prob < 0.5:
+                        PAUSE += INTERVAL_DURATION
+                    else:
+                        PAUSE = 0
+                        buffer.inactive = False
+
+                    if PAUSE > 5:
+                        buffer.inactive = True
+                        continue
+
+                    buffer.update(_data, speech_prob)
+
+        except KeyboardInterrupt:
+            pass
+        finally:
+            buffer.inactive = False
+            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=SAMPLERATE)
