@@ -180,9 +180,9 @@ try:
                 content_filter = SCContentFilter(desktopIndependentWindow=capture_target)
             else:
                 capture_target = shareable_content.displays()[0]
-                print(f"id: {capture_target.displayID()}")
+                # print(f"id: {capture_target.displayID()}")
                 content_filter = SCContentFilter(display=capture_target, excludingWindows=[])
-                print(content_filter)
+                # print(content_filter)
 
             width = capture_target.frame().size.width*content_filter.pointPixelScale()
             height = capture_target.frame().size.height*content_filter.pointPixelScale()

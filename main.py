@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QSizePolicy
 )
 
-import util.util as util
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 from util.anki import start_monitoring_anki
 from util.mac import (
@@ -37,9 +36,10 @@ from util.mac import (
     getAppAXWindows,
     getAXWindowFromWindowInfo
 )
-from util.sockets import WebsocketManagerThread
+import util.sockets
 import util.audio as audio
 import util.screenshot as screenshot
+import util.util as ut
 
 
 class ConfirmationDialog(QDialog):
@@ -84,11 +84,11 @@ class Player_Worker(QRunnable):
         if int(self.cursor/self.step) == (int(self.frames/self.step)-1):
             self.cursor = 0
 
-        with sc.default_speaker().player(samplerate=util.SAMPLERATE) as sp:
+        with sc.default_speaker().player(samplerate=audio.SAMPLERATE) as sp:
             for i in range(int(self.cursor/self.step), int(self.frames/self.step)):
                 self.cursor = i*self.step
                 if not self.playing:
-                    util.PLAYBACK = False
+                    audio.PLAYBACK = False
                     break
                 # print(f"{i}: [{i*step}:{(i+1)*step}]")
                 # print(_dataT[i*500:(i+1)*500])
@@ -101,15 +101,15 @@ class Player_Worker(QRunnable):
         self.playing = False
         self.main_window.play_button.setText("Play")
 
-        if self.main_window.audio_monitoring and audio.monitoringAudio is None:
-            audio.startMonitoringAudio(self.main_window.listwidget, self.main_window.audio_data, self.main_window.audio_info)
+        # if self.main_window.audio_monitoring and audio.monitoringAudio is None:
+        #     audio.startMonitoringAudio(self.main_window.listwidget, self.main_window.audio_data, self.main_window.audio_info)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.apps = getAllApps()
-        self.windows = None
+        self.windows = None 
         self.mikes, loop_idx = audio.get_mics()
 
         self.audio_data = []
@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
         self.sessionLayout = QHBoxLayout()
 
         self.session_select = QComboBox()
-        self.session_select.addItems(list(util.sessions.keys()))
+        self.session_select.addItems(list(ut.sessions.keys()))
         self.session_select.currentTextChanged.connect(self.set_session)
         self.sessionLayout.addWidget(self.session_select)
 
@@ -185,7 +185,7 @@ class MainWindow(QMainWindow):
         self.buttonHlayout = QHBoxLayout()
 
         self.rec_screen_button = QPushButton("Screenshot")
-        self.rec_screen_button.released.connect(util.recordHotKeyScreenshot)
+        self.rec_screen_button.released.connect(ut.recordHotKeyScreenshot)
         self.buttonHlayout.addWidget(self.rec_screen_button)
 
         self.rec_audio_button = QPushButton("Audio")
@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
         widget.setLayout(self.layout)
         self.setCentralWidget(widget)
 
-        util.signals.confirm.connect(self.openConfirmationDialog)
+        ut.signals.confirm.connect(self.openConfirmationDialog)
 
         self.threadpool = QThreadPool()
         self.player = Player_Worker(self)
@@ -272,7 +272,7 @@ class MainWindow(QMainWindow):
     def set_session(self, key):
         if not key:
             return
-        print(f"session: {util.sessions[key]}")
+        print(f"session: {ut.sessions[key]}")
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
         try:
@@ -281,19 +281,19 @@ class MainWindow(QMainWindow):
             self.app_select.addItems([a.localizedName() for a in self.apps])
             self.app_select.setCurrentIndex(-1)
             for i in range(len(self.apps)):
-                if self.apps[i].localizedName() == util.sessions[key]["AppName"]:
+                if self.apps[i].localizedName() == ut.sessions[key]["AppName"]:
                     self.app_select.setCurrentIndex(i)
                     break
             if self.app_select.currentIndex() < 0:
-                raise Exception(f"{util.sessions[key]["AppName"]} not running")
+                raise Exception(f"{ut.sessions[key]["AppName"]} not running")
             self.set_app(self.app_select.currentIndex())
             self.window_select.setCurrentIndex(-1)
             for i in range(len(self.windows)):
-                if self.windows[i]["kCGWindowName"] == util.sessions[key]["WindowTitle"]:
+                if self.windows[i]["kCGWindowName"] == ut.sessions[key]["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
             if self.window_select.currentIndex() < 0:
-                raise Exception(f"{util.sessions[key]["WindowTitle"]} window not found")
+                raise Exception(f"{ut.sessions[key]["WindowTitle"]} window not found")
             self.set_window(self.window_select.currentIndex())
         except Exception as e:
             print(e)
@@ -303,8 +303,8 @@ class MainWindow(QMainWindow):
 
     def set_app(self, index):
         print(f"self.apps[index]: {self.apps[index]}")
-        util.app = self.apps[index]
-        util.proc = getAS_Process(util.se, util.app)
+        ut.app = self.apps[index]
+        ut.proc = getAS_Process(ut.se, ut.app)
         self.windows = getAppWindows(self.apps[index])
         self.window_select.clear()
         self.window_select.addItems([w["kCGWindowName"] for w in self.windows])
@@ -312,8 +312,8 @@ class MainWindow(QMainWindow):
     def set_window(self, index):
         try:
             print(f"self.windows[index]: {self.windows[index]}")
-            util.win = self.windows[index]
-            util.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(util.app), self.windows[index])
+            screenshot.win = self.windows[index]
+            ut.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(ut.app), self.windows[index])
         except Exception as e:
             print(e)
 
@@ -321,22 +321,23 @@ class MainWindow(QMainWindow):
         audio.mic = self.mikes[index]
         if audio.buffer is None or audio.buffer.channels != audio.mic.channels:
             audio.buffer = audio.AudioBuffer(channels=audio.mic.channels)
+            audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
 
     def set_use_audio_button(self, state):
         print(f"state: {state}")
         if state:
-            util.use_button = True
+            ut.use_button = True
         else:
-            util.use_button = False
+            ut.use_button = False
 
     def audioMonitor(self):
         if not self.audio_monitoring:
-            self.monitoring_button.setText("Stop Monitoring Audio")
+            self.monitoring_button.setText("Stop Monitoring")
             self.audio_monitoring = True
         else:
-            self.monitoring_button.setText("Start Monitoring Audio")
+            self.monitoring_button.setText("Start Monitoring")
             self.audio_monitoring = False
-        # audio.startMonitoringAudio(self.listwidget, self.audio_data, self.audio_info)
+
         if audio.record_audio_buffer is None:
             audio.record_audio_buffer = audio.recordAudioBuffer()
             audio.record_audio_buffer.start()
@@ -358,24 +359,24 @@ class MainWindow(QMainWindow):
             sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
             # print(self.audio_data)
             # print(sel_indeces)
-            util.recordHotKeyAudio(data=[self.audio_data[i] for i in sel_indeces])
+            ut.recordHotKeyAudio(data=[self.audio_data[i] for i in sel_indeces])
         else:
-            util.recordHotKeyAudio()
+            ut.recordHotKeyAudio()
 
     def getBoth(self):
         if self.audio_monitoring:
             sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
-            util.recordHotKeyBoth(data=[self.audio_data[i] for i in sel_indeces])
+            ut.recordHotKeyBoth(data=[self.audio_data[i] for i in sel_indeces])
         else:
-            util.recordHotKeyBoth()
+            ut.recordHotKeyBoth()
 
     def openConfirmationDialog(self, data):
         confirmD = ConfirmationDialog(data)
         if confirmD.exec():
-            util.confirmed = True
+            ut.confirmed = True
         else:
-            util.confirmed = False
-        util.condition.set()
+            ut.confirmed = False
+        ut.condition.set()
 
     def playAudio(self):
         if self.player._data is None:
@@ -387,13 +388,11 @@ class MainWindow(QMainWindow):
         if self.player.playing:
             self.play_button.setText("Play")
             self.player.playing = False
-            # util.PLAYBACK = False
+            # audio.PLAYBACK = False
         else:
             self.play_button.setText("Pause")
             self.player.playing = True
-            # util.PLAYBACK = True
-            if audio.monitoringAudio is not None:
-                audio.monitoringAudio.set()
+            # audio.PLAYBACK = True
             self.threadpool.start(self.player)
 
     def slider_moved(self):
@@ -408,26 +407,35 @@ class MainWindow(QMainWindow):
         self.player._dataT = None
         self.player.cursor = 0
         self.player.playing = False
-        util.PLAYBACK = False
+        audio.PLAYBACK = False
 
 
 def main():
     createAggregateDevice()
-    util.hotkeys.start()
-    util.hotkeys.wait()
-    ws_server = WebsocketManagerThread(ws_port=6678, listen_urls=["localhost:6677"])
-    ws_server.start()
+    ut.hotkeys.start()
+    ut.hotkeys.wait()
+    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=6678, listen_urls=["localhost:6677"])
+    util.sockets.ws_server.start()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     if sys.platform == "darwin":
-        print("darwon")
         window.raise_()
     app.exec()
-    util.hotkeys.stop()
+    ut.hotkeys.stop()
     destroyAggregateDevice()
-    if audio.monitoringAudio is not None:
-        audio.monitoringAudio.set()
+
+    if audio.record_audio_buffer:
+        audio.record_audio_buffer.stop_recording()
+        audio.record_audio_buffer.join()
+        audio.record_audio_buffer = None
+
+    if screenshot.screenshot_manager:
+        screenshot.screenshot_manager.stop_recording()
+        screenshot.screenshot_manager.join()
+        screenshot.screenshot_manager = None
+
+    util.sockets.ws_server.stop_server()
 
 
 if __name__ == "__main__":

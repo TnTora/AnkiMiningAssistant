@@ -1,35 +1,57 @@
 import threading
 from time import sleep
-from collections import UserDict
+from collections import deque
 from datetime import datetime, timedelta
-from PIL import Image
-import util.util as util
+# from PIL import Image
 from util.mac import capture_screenshot
+# import util.util as util
+
+win = None
 
 
-class ImageTempStorage(UserDict):
+class ImageStored:
+
+    def __init__(self, img_bytesIO, time=None):
+        self.img_bytesIO = img_bytesIO
+        self.time = time or datetime.now()
+
+    def __repr__(self) -> str:
+        return f"ImageStored [{self.time.strftime(format="%Y-%m-%d_%H-%M-%S")}]"
+
+    def size(self):
+        return self.img_bytesIO.getbuffer().nbytes
+
+
+class ImageTempStorage:
 
     last_active_date = None
     storage_time_limit = timedelta(minutes=5, seconds=0)
+    inactive = False
 
-    def __setitem__(self, key, value):
-        if not isinstance(key, datetime):
-            raise TypeError("ImageTempStorage key must be of class datetime")
-        super().__setitem__(key, value)
+    def __init__(self):
+        self.deque = deque()
 
+    def append(self, x):
+        self.deque.append(x)
+        self.trim_extra()
+
+    def trim_extra(self):
         if self.last_active_date is None:
             last_active_date = datetime.now()
         else:
             last_active_date = self.last_active_date
 
-        to_remove = []
-        for key_time in self.data:
-            if last_active_date - key_time > self.storage_time_limit:
-                to_remove.append(key_time)
+        while self.deque:
+            if last_active_date - self.deque[0].time > self.storage_time_limit:
+                self.deque.popleft()
             else:
                 break
-        for key_time in to_remove:
-            del self.data[key_time]
+
+    def __iter__(self):
+        return self.deque.__iter__()
+
+    def __repr__(self) -> str:
+        return self.deque.__repr__()
 
 
 images_tmp = ImageTempStorage()
@@ -75,9 +97,10 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = N
             sleep(wait_sec)
 
         # path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
-        path_tmp = f"{util.session}_{curr_time_str}.webp"
-        tmp_img = capture_screenshot(path_tmp, util.win)
-        images_tmp[curr_time] = tmp_img
+        path_tmp = f"{curr_time_str}.webp"
+        tmp_img = capture_screenshot(path_tmp, win)
+        # images_tmp[curr_time] = tmp_img
+        images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))
 
     except KeyboardInterrupt:
         pass
@@ -103,10 +126,13 @@ class ScreenshotManager(threading.Thread):
         while True:
             if self.stop_rec.is_set():
                 break
+            if ImageTempStorage.inactive:
+                sleep(self.interval)
+                continue
             take_screenshot()
             sleep(self.interval)
 
-        for time in images_tmp:
-            with Image.open(images_tmp[time]) as img:
-                img.save(f"screenshots/{time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
+        for img in images_tmp:
+            with open(f"screenshots/{img.time.strftime('%Y-%m-%d_%H_%M_%S')}.webp", "wb") as f:
+                f.write(img.img_bytesIO.getbuffer())
 

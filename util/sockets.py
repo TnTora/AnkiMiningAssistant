@@ -3,43 +3,54 @@ import threading
 import asyncio
 import json
 from datetime import datetime, timedelta
-from collections import UserDict
+from collections import deque
 # import traceback
 
 from util.screenshot import _take_screenshot
+import util.audio as audio
+
+ws_server = None
 
 
 class LineStored:
 
-    def __init__(self, text):
+    def __init__(self, text, time):
         self.text = text
-        self.next = None
+        self.time = time or datetime.now()
+
+    def __repr__(self) -> str:
+        return f"LineStored [{self.time.strftime(format="%Y-%m-%d_%H-%M-%S")}]"
 
 
-class LinesTempStorage(UserDict):
+class LinesTempStorage:
 
     last_active_date = None
-    storage_time_limit = timedelta(minutes=0, seconds=20)
-    previous_line = None
+    storage_time_limit = timedelta(minutes=5, seconds=0)
 
-    def __setitem__(self, key, value):
-        if not isinstance(key, datetime):
-            raise TypeError("LinesTempStorage key must be of class datetime")
-        super().__setitem__(key, value)
+    def __init__(self):
+        self.deque = deque()
 
+    def append(self, x: LineStored):
+        self.deque.append(x)
+        self.trim_extra()
+
+    def trim_extra(self):
         if self.last_active_date is None:
             last_active_date = datetime.now()
         else:
             last_active_date = self.last_active_date
 
-        to_remove = []
-        for key_time in self.data:
-            if last_active_date - key_time > self.storage_time_limit:
-                to_remove.append(key_time)
+        while True:
+            if last_active_date - self.deque[0].time > self.storage_time_limit:
+                self.deque.popleft()
             else:
                 break
-        for key_time in to_remove:
-            del self.data[key_time]
+
+    def __iter__(self):
+        return self.deque.__iter__()
+
+    def __repr__(self) -> str:
+        return self.deque.__repr__()
 
 
 text_received = None
@@ -141,7 +152,11 @@ class WebsocketManagerThread(threading.Thread):
                             sentence = msg
                         finally:
                             if isinstance(sentence, str):
-                                text_stored[line_time] = sentence
+                                text_stored.append(LineStored(text=sentence, time=line_time))
+                                print(f"audio.AudioBuffer.inactive: {audio.AudioBuffer.inactive}, audio.record_audio_buffer: {audio.record_audio_buffer}")
+                                if audio.AudioBuffer.inactive and audio.record_audio_buffer:
+                                    print("resume")
+                                    audio.record_audio_buffer.resume_recording()
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
             except Exception:
