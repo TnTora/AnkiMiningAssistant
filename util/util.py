@@ -161,11 +161,11 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
         # print(audio_data)
         # print(np.concatenate(audio_data))
         sf.write(
-            file=os.path.join(media_dir, f"VN-{session}_{curr_time}.mp3"),
+            file=os.path.join(media_dir, f"{session}_{curr_time_str}.mp3"),
             data=np.concatenate(audio_data),
             samplerate=SAMPLERATE
         )
-        update_fields["SentenceAudio"] = f"[sound:VN-{session}_{curr_time}.mp3]"
+        update_fields["SentenceAudio"] = f"[sound:{session}_{curr_time_str}.mp3]"
     elif audio:
         # app.activateWithOptions_(Quartz.NSApplicationActivateIgnoringOtherApps)
         # selected_win.activate()
@@ -174,7 +174,7 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
         if use_button and isCurrentlyActive(app):
             thread = threading.Thread(
                 target=recordAudio,
-                args=(os.path.join(media_dir, f"VN-{session}_{curr_time}.mp3"),))
+                args=(os.path.join(media_dir, f"{session}_{curr_time_str}.mp3"),))
             mouse_controller.position = (
                 bounds["X"]+(button["x_rel"]*bounds["Width"]),
                 bounds["Y"]+(button["y_rel"]*bounds["Height"])
@@ -190,9 +190,9 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
                 sleep(1)
 
             print("Recording...")
-            recordAudio(os.path.join(media_dir, f"VN-{session}_{curr_time}.mp3"))
+            recordAudio(os.path.join(media_dir, f"{session}_{curr_time_str}.mp3"))
 
-        update_fields["SentenceAudio"] = f"[sound:VN-{session}_{curr_time}.mp3]"
+        update_fields["SentenceAudio"] = f"[sound:{session}_{curr_time_str}.mp3]"
 
     # if last_note > 0:
     if update_fields:
