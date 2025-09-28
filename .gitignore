@@ -3,3 +3,7 @@
 .venv-3.13
 __pycache__
 audiobuffer.*
+screenshots
+audio_tmp
+test*
+*.json
