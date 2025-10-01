@@ -163,10 +163,10 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str, win):
+    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP"):
         finish = threading.Event()
         file_data = None
-        buffered = BytesIO()
+        container = save_path or BytesIO()
 
         def shareable_content_completion_handler(shareable_content, error):
 
@@ -223,7 +223,7 @@ try:
             print(f"image size: {len(data)}")
             file_data = BytesIO(data)
             with Image.open(file_data) as img:
-                img.save(buffered, format="WebP", quality=80)
+                img.save(container, format=format, quality=80)
             # img = Image.open(file_data)
             # img.save(buffered, format="WebP")
             # img.save(save_path_tmp)
@@ -239,7 +239,7 @@ try:
         )
 
         finish.wait()
-        return buffered
+        return container
 
 except ImportError:
     pass

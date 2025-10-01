@@ -12,10 +12,11 @@ from collections import deque
 from itertools import islice
 
 import util.screenshot as screenshot
+from util.database import audiodb, AudioSettings, GeneralSettings
 
 monitoringAudio = None
 SAMPLERATE = 44100
-INTERVAL_DURATION = 512/16000  # 0.1
+INTERVAL_DURATION = 512/16000
 mic = None
 buffer = None
 secondary_buffer = None
@@ -23,37 +24,57 @@ record_audio_buffer = None
 PLAYBACK = False
 
 model = load_silero_vad()
-resampler = torchaudio.transforms.Resample(SAMPLERATE, 16000)
+resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
 
 
 class AudioInterval:
 
-    def __init__(self, audio, vad=None) -> None:
-        self.audio = audio
+    def __init__(self, data, vad=None) -> None:
+        self.data = data
         self.vad = vad
 
 
 class InactiveInterval:
 
-    def __init__(self, start_time):
+    def __init__(self, start_time, end_time=None):
         self.start_time = start_time
-        self.end_time = None
+        self.end_time = end_time
 
 
 class AudioBuffer:
 
-    storage_time_limit = timedelta(minutes=5, seconds=0)
+    storage_time_limit = GeneralSettings.storage_time_limit
     inactive_intervals = []
-    inactive = False
+    inactive = True
+    total_offset = timedelta(seconds=0)
 
-    def __init__(self, channels=2, max_time=None):
+    def __init__(self, channels=2, max_time=None, is_primary=False):
         max_time = max_time or AudioBuffer.storage_time_limit.total_seconds()
         max_intervals = int(max_time // INTERVAL_DURATION)+1
         self.deque = deque(maxlen=max_intervals)
         self.channels = channels
+        if is_primary:
+            self.load_from_db()
+
+    def load_from_db(self):
+        for data, vad in audiodb.load_buffer():
+            self.update(data, vad)
+        for start, end in audiodb.load_inactive_intervals():
+            start_time = datetime.fromtimestamp(start)
+            # end_time = end if not end else datetime.fromtimestamp(end)
+            try:
+                end_time = datetime.fromtimestamp(end)
+            except TypeError:
+                end_time = None
+            self.inactive_intervals.append(
+                InactiveInterval(
+                    start_time=start_time,
+                    end_time=end_time
+                )
+            )
 
     def update(self, new_audio, new_vad):
-        self.deque.append(AudioInterval(audio=new_audio, vad=new_vad))
+        self.deque.append(AudioInterval(data=new_audio, vad=new_vad))
 
     def __iter__(self):
         return self.deque.__iter__()
@@ -66,7 +87,7 @@ class AudioBuffer:
         end_idx = end_idx or len(self.deque)
 
         data = np.concatenate(
-            [interval.audio for interval in self.slice_(start_idx, end_idx)],
+            [interval.data for interval in self.slice_(start_idx, end_idx)],
             axis=0,
         )
 
@@ -101,6 +122,8 @@ class AudioBuffer:
                 break
 
             offset += interval.end_time - interval.start_time
+
+        cls.total_offset = offset
 
         del cls.inactive_intervals[:remove_up_to]
 
@@ -144,7 +167,7 @@ class AudioBuffer:
         else:
             curr_time = datetime.now()
 
-        if curr_time - line_time - AudioBuffer.get_total_offset() > AudioBuffer.storage_time_limit:
+        if curr_time - line_time - AudioBuffer.total_offset > AudioBuffer.storage_time_limit:
             return
 
         data_copy = list(self.slice_())
@@ -164,13 +187,13 @@ class AudioBuffer:
 
         if save_on_disk:
             save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
-            with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=SAMPLERATE) as f:
+            with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
                 for interval in islice(data_copy, line_start, line_end):
-                    f.write(interval.audio)
+                    f.write(interval.data)
             return save_path
         else:
             data_copy = np.concatenate(
-                [interval.audio for interval in islice(data_copy, line_start, line_end)],
+                [interval.data for interval in islice(data_copy, line_start, line_end)],
                 axis=0,
             )
 
@@ -180,11 +203,18 @@ class AudioBuffer:
 def get_mics():
     mikes = sc.all_microphones()
     # print("\nmikes:")
+    loopbacks = []
     for i in range(len(mikes)):
         loopback = isloopback(mikes[i].id)
         if loopback:
+            loopbacks.append(i)
+        stored_in_db = mikes[i].name == AudioSettings.mic
+        if stored_in_db:
             return mikes, i
-    return mikes, None
+    if loopbacks:
+        return mikes, loopbacks[0]
+    else:
+        return mikes, None
 
 
 def recordAudio(filepath):
@@ -193,9 +223,9 @@ def recordAudio(filepath):
     data = None
     try:
         recording = threading.Event()
-        with mic.recorder(samplerate=SAMPLERATE) as r:
+        with mic.recorder(samplerate=AudioSettings.samplerate) as r:
             while True:
-                _data = r.record(numframes=int(SAMPLERATE*INTERVAL_DURATION))
+                _data = r.record(numframes=int(AudioSettings.samplerate*INTERVAL_DURATION))
                 if data is None:
                     data = _data
                 else:
@@ -207,12 +237,13 @@ def recordAudio(filepath):
         pass
     finally:
         print("Saving audio file")
-        sf.write(file=filepath, data=data, samplerate=SAMPLERATE)
+        sf.write(file=filepath, data=data, samplerate=AudioSettings.samplerate)
 
 
 class recordAudioBuffer(threading.Thread):
 
-    resume_on_detected_voice = False
+    resume_on_detected_voice = AudioSettings.resume_on_detected_voice
+    continuous_recording = AudioSettings.continuous
 
     def __init__(self):
         super().__init__()
@@ -228,7 +259,9 @@ class recordAudioBuffer(threading.Thread):
     def run(self):
         try:
             PAUSE = 0
-            with mic.recorder(samplerate=SAMPLERATE) as r:
+            AudioBuffer.inactive = False
+            screenshot.ImageTempStorage.inactive = False
+            with mic.recorder(samplerate=AudioSettings.samplerate) as r:
                 while True:
 
                     if self.stop_rec.is_set():
@@ -242,7 +275,7 @@ class recordAudioBuffer(threading.Thread):
                         self.resume_rec = threading.Event()
                         print("resuming")
 
-                    _data = r.record(numframes=int(SAMPLERATE*INTERVAL_DURATION))
+                    _data = r.record(numframes=int(AudioSettings.samplerate*INTERVAL_DURATION))
 
                     # if AudioBuffer.inactive:
                     #     sleep(INTERVAL_DURATION)
@@ -253,7 +286,7 @@ class recordAudioBuffer(threading.Thread):
                     if data_tensor.size(0) > 1:
                         data_tensor = data_tensor.mean(dim=0, keepdim=True)
 
-                    if SAMPLERATE != 16000:
+                    if AudioSettings.samplerate != 16000:
                         data_tensor = resampler(data_tensor)
 
                     speech_prob = model(data_tensor, 16000).item()
@@ -271,7 +304,7 @@ class recordAudioBuffer(threading.Thread):
                         sleep(min(INTERVAL_DURATION, 0.05))
                         continue
 
-                    if PAUSE > 5:
+                    if PAUSE > 5 and not self.continuous_recording:
                         print("pausing")
                         # AudioBuffer.inactive = True
                         # screenshot.ImageTempStorage.inactive = True
@@ -285,4 +318,4 @@ class recordAudioBuffer(threading.Thread):
             pass
         finally:
             AudioBuffer.inactive = False
-            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=SAMPLERATE)
+            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)

@@ -29,9 +29,10 @@ from PySide6.QtWidgets import (
 
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 from util.anki import start_monitoring_anki
+from util.database import settings, imagedb, audiodb, linedb
 from util.mac import (
     getAllApps,
-    getAS_Process,
+    # getAS_Process,
     getAppWindows,
     getAppAXWindows,
     getAXWindowFromWindowInfo
@@ -101,7 +102,7 @@ class Player_Worker(QRunnable):
         self.playing = False
         self.main_window.play_button.setText("Play")
 
-        # if self.main_window.audio_monitoring and audio.monitoringAudio is None:
+        # if self.main_window.av_monitoring and audio.monitoringAudio is None:
         #     audio.startMonitoringAudio(self.main_window.listwidget, self.main_window.audio_data, self.main_window.audio_info)
 
 
@@ -109,12 +110,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.apps = getAllApps()
-        self.windows = None 
-        self.mikes, loop_idx = audio.get_mics()
+        self.windows = None
+        self.mikes, preferred_idx = audio.get_mics()
 
         self.audio_data = []
         self.audio_info = []
-        self.audio_monitoring = False
+        self.av_monitoring = False
 
         self.setWindowTitle("miningVN")
         self.layout = QVBoxLayout()
@@ -171,8 +172,8 @@ class MainWindow(QMainWindow):
         self.mic_select = QComboBox()
         self.mic_select.addItems([f"{mic}" for mic in self.mikes])
         self.mic_select.currentIndexChanged.connect(self.set_mic)
-        if loop_idx is not None:
-            self.mic_select.setCurrentIndex(loop_idx)
+        if preferred_idx is not None:
+            self.mic_select.setCurrentIndex(preferred_idx)
         self.mic_sel_Layout.addWidget(self.mic_select)
 
         self.layout.addLayout(self.mic_sel_Layout)
@@ -304,7 +305,7 @@ class MainWindow(QMainWindow):
     def set_app(self, index):
         print(f"self.apps[index]: {self.apps[index]}")
         ut.app = self.apps[index]
-        ut.proc = getAS_Process(ut.se, ut.app)
+        # ut.proc = getAS_Process(ut.se, ut.app)
         self.windows = getAppWindows(self.apps[index])
         self.window_select.clear()
         self.window_select.addItems([w["kCGWindowName"] for w in self.windows])
@@ -319,8 +320,9 @@ class MainWindow(QMainWindow):
 
     def set_mic(self, index):
         audio.mic = self.mikes[index]
+        settings.update_option("audio", "mic", self.mikes[index].name)
         if audio.buffer is None or audio.buffer.channels != audio.mic.channels:
-            audio.buffer = audio.AudioBuffer(channels=audio.mic.channels)
+            audio.buffer = audio.AudioBuffer(channels=audio.mic.channels, is_primary=True)
             audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
 
     def set_use_audio_button(self, state):
@@ -331,12 +333,12 @@ class MainWindow(QMainWindow):
             ut.use_button = False
 
     def audioMonitor(self):
-        if not self.audio_monitoring:
+        if not self.av_monitoring:
             self.monitoring_button.setText("Stop Monitoring")
-            self.audio_monitoring = True
+            self.av_monitoring = True
         else:
             self.monitoring_button.setText("Start Monitoring")
-            self.audio_monitoring = False
+            self.av_monitoring = False
 
         if audio.record_audio_buffer is None:
             audio.record_audio_buffer = audio.recordAudioBuffer()
@@ -347,7 +349,7 @@ class MainWindow(QMainWindow):
             audio.record_audio_buffer = None
 
         if screenshot.screenshot_manager is None:
-            screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=1)
+            screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
             screenshot.screenshot_manager.start()
         else:
             screenshot.screenshot_manager.stop_recording()
@@ -355,7 +357,7 @@ class MainWindow(QMainWindow):
             screenshot.screenshot_manager = None
 
     def getAudio(self):
-        if self.audio_monitoring:
+        if self.av_monitoring:
             sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
             # print(self.audio_data)
             # print(sel_indeces)
@@ -364,7 +366,7 @@ class MainWindow(QMainWindow):
             ut.recordHotKeyAudio()
 
     def getBoth(self):
-        if self.audio_monitoring:
+        if self.av_monitoring:
             sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
             ut.recordHotKeyBoth(data=[self.audio_data[i] for i in sel_indeces])
         else:
@@ -410,11 +412,18 @@ class MainWindow(QMainWindow):
         audio.PLAYBACK = False
 
 
+def update_all_dbs():
+    settings.store_settings()
+    imagedb.store_imgs(screenshot.images_tmp)
+    audiodb.store_buffer(audio.buffer)
+    linedb.store_lines(util.sockets.text_stored)
+
+
 def main():
     createAggregateDevice()
-    ut.hotkeys.start()
-    ut.hotkeys.wait()
-    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=6678, listen_urls=["localhost:6677"])
+    # ut.hotkeys.start()
+    # ut.hotkeys.wait()
+    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls.split(","))
     util.sockets.ws_server.start()
     app = QApplication(sys.argv)
     window = MainWindow()
@@ -422,7 +431,7 @@ def main():
     if sys.platform == "darwin":
         window.raise_()
     app.exec()
-    ut.hotkeys.stop()
+    # ut.hotkeys.stop()
     destroyAggregateDevice()
 
     if audio.record_audio_buffer:
@@ -436,6 +445,8 @@ def main():
         screenshot.screenshot_manager = None
 
     util.sockets.ws_server.stop_server()
+
+    update_all_dbs()
 
 
 if __name__ == "__main__":

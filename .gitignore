@@ -7,3 +7,5 @@ screenshots
 audio_tmp
 test*
 *.json
+.*
+*.db

@@ -2,11 +2,12 @@ import websockets
 import threading
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque
 # import traceback
 
 from util.screenshot import _take_screenshot
+from util.database import GeneralSettings, linedb
 import util.audio as audio
 
 ws_server = None
@@ -25,10 +26,14 @@ class LineStored:
 class LinesTempStorage:
 
     last_active_date = None
-    storage_time_limit = timedelta(minutes=5, seconds=0)
+    storage_time_limit = GeneralSettings.storage_time_limit
 
     def __init__(self):
         self.deque = deque()
+
+    def load_from_db(self):
+        for data in linedb.load_lines():
+            self.deque.append(LineStored(text=data[0], time=datetime.fromtimestamp(data[1])))
 
     def append(self, x: LineStored):
         self.deque.append(x)
@@ -153,9 +158,8 @@ class WebsocketManagerThread(threading.Thread):
                         finally:
                             if isinstance(sentence, str):
                                 text_stored.append(LineStored(text=sentence, time=line_time))
-                                print(f"audio.AudioBuffer.inactive: {audio.AudioBuffer.inactive}, audio.record_audio_buffer: {audio.record_audio_buffer}")
+                                # print(f"audio.AudioBuffer.inactive: {audio.AudioBuffer.inactive}, audio.record_audio_buffer: {audio.record_audio_buffer}")
                                 if audio.AudioBuffer.inactive and audio.record_audio_buffer:
-                                    print("resume")
                                     audio.record_audio_buffer.resume_recording()
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)

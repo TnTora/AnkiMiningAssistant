@@ -12,18 +12,26 @@ import util.sockets
 # import util.util as util
 import util.audio as audio
 import util.screenshot as screenshot
+from util.database import AnkiSettings, settings
 
-anki_port = 8765
+# anki_port = 8765
 previous_notes = set()
 last_note = None
 last_note_update_time = None
 last_note_info = None
 last_note_sentence_clean = None
-auto_update = True
-open_add_note_in_gui = True
+# auto_update_last_note = True
+# open_note_in_gui = True
 
-card_fields = {"Expression": "Expression",
-               "Sentence": "Sentence"}
+# anki_deck = "Mining"
+
+card_fields = {"Expression": AnkiSettings.expression,
+               "Sentence": AnkiSettings.sentence,
+               "Picture": AnkiSettings.picture,
+               "SentenceAudio": AnkiSettings.sentence_audio}
+
+media_dir = None
+start_session = datetime.now()
 
 
 def request(action, **params):
@@ -31,17 +39,20 @@ def request(action, **params):
 
 
 def invoke(action, **params):
-    requestJson = json.dumps(request(action, **params)).encode('utf-8')
-    response = json.load(urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{anki_port}', requestJson)))
-    if len(response) != 2:
-        raise Exception('response has an unexpected number of fields')
-    if 'error' not in response:
-        raise Exception('response is missing required error field')
-    if 'result' not in response:
-        raise Exception('response is missing required result field')
-    if response['error'] is not None:
-        raise Exception(response['error'])
-    return response['result']
+    try:
+        requestJson = json.dumps(request(action, **params)).encode('utf-8')
+        response = json.load(urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{AnkiSettings.port}', requestJson)))
+        if len(response) != 2:
+            raise Exception('response has an unexpected number of fields')
+        if 'error' not in response:
+            raise Exception('response is missing required error field')
+        if 'result' not in response:
+            raise Exception('response is missing required result field')
+        if response['error'] is not None:
+            raise Exception(response['error'])
+        return response['result']
+    except Exception:
+        return
 
 
 def get_media_dir():
@@ -50,7 +61,7 @@ def get_media_dir():
 
 
 def get_last_note():
-    results = invoke("findNotes", query="deck:Mining added:1")
+    results = invoke("findNotes", query=f"deck:{AnkiSettings.deck} added:1")
     if results:
         return max(results)
     else:
@@ -69,17 +80,14 @@ def update_note(note_id, fields, tags=""):
     invoke("updateNoteFields", note={"id": note_id, "fields": fields})
     if tags:
         invoke("addTags", notes=[note_id], tags=tags)
-    if open_add_note_in_gui:
+    if AnkiSettings.open_note_in_gui:
         invoke("guiBrowse", query=f"nid:{note_id}")
 
 
-media_dir = None
-start_session = datetime.now()
-
-
 def auto_update_note():
-    global media_dir
+    # global media_dir
     found_lines = []
+    next_line_time = None
     substring_idx = None
     # next_line = util.sockets.LineStored(text=None, time=None)
     images = []
@@ -118,6 +126,9 @@ def auto_update_note():
         print("more then one sentence matched")
         return
 
+    if found_lines[0]["next"]:
+        next_line_time = found_lines[0]["next"].time
+
     for img in screenshot.images_tmp:
         if img.time < found_lines[0]["line"].time:
             continue
@@ -125,15 +136,19 @@ def auto_update_note():
             continue
         images.append(img)
 
-    if media_dir is None:
+    if AnkiSettings.media_dir is None:
+        # AnkiSettings.media_dir = get_media_dir()
         media_dir = get_media_dir()
+        if media_dir is None:
+            return
+        settings.update_option("anki", "media_dir", media_dir)
 
     curr_time = datetime.now()
 
-    audio_path = os.path.join(media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3")
-    img_path = os.path.join(media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
+    audio_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3")
+    img_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
 
-    line_audio = audio.buffer.extract_line_audio(found_lines[0]["line"].time, found_lines[0]["next"].time, save_on_disk=True, save_path=audio_path)
+    line_audio = audio.buffer.extract_line_audio(found_lines[0]["line"].time, next_line_time, save_on_disk=True, save_path=audio_path)
 
     update_fields = {}
 
@@ -141,15 +156,15 @@ def auto_update_note():
         line_update = found_lines[0]["line"].text.replace(last_note_sentence_clean, last_note_info[card_fields["Sentence"]])
 
     if line_update:
-        update_fields["Sentence"] = line_update
+        update_fields[card_fields["Sentence"]] = line_update
 
     if images:
         with open(img_path, "wb") as f:
             f.write(images[0].img_bytesIO.getbuffer())
-        update_fields["Picture"] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
+        update_fields[card_fields["Picture"]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
     if line_audio:
-        update_fields["SentenceAudio"] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
+        update_fields[card_fields["SentenceAudio"]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
 
     if update_fields:
         update_note(last_note, update_fields)
@@ -169,15 +184,17 @@ def monitor_last_note(widget_info_update=None):
         try:
             last_note_tmp = get_last_note()
             if last_note_tmp not in previous_notes:
-                previous_notes.add(last_note_tmp)
                 last_note = last_note_tmp
                 last_note_update_time = datetime.now()
                 last_note_info = get_note_info(last_note)
+                if last_note_info is None:
+                    continue
                 last_note_sentence_clean = cleanhtml(last_note_info[card_fields["Sentence"]])
+                previous_notes.add(last_note_tmp)
                 if widget_info_update:
                     widget_info_update(f"Word: {last_note_info[card_fields["Expression"]]}\nSentence: {last_note_sentence_clean}")
                 print(f"last_note: {last_note}, start_session.timestamp(): {start_session.timestamp()*1000}")
-                if auto_update and last_note > start_session.timestamp()*1000:
+                if AnkiSettings.auto_update_last_note and last_note > start_session.timestamp()*1000:
                     auto_update_note()
         except Exception as e:
             if "No note added today" in str(e):
