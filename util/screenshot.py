@@ -2,6 +2,7 @@ import threading
 from time import sleep
 from collections import deque
 from datetime import datetime
+from io import BytesIO
 
 # from PIL import Image
 from util.mac import capture_screenshot
@@ -36,7 +37,7 @@ class ImageTempStorage:
 
     def load_from_db(self):
         for data in imagedb.load_imgs():
-            self.deque.append(ImageStored(img_bytesIO=data[0], time=datetime.fromtimestamp(data[1])))
+            self.deque.append(ImageStored(img_bytesIO=BytesIO(data[0]), time=datetime.fromtimestamp(data[1])))
 
     def append(self, x):
         self.deque.append(x)

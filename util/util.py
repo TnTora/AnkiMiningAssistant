@@ -1,12 +1,8 @@
-import json
 import threading
-import tempfile
 import os
 # import sys
 import numpy as np
-# import soundcard as sc
 import soundfile as sf
-# import pywinctl as pwc
 from datetime import datetime
 from time import sleep
 
@@ -15,9 +11,9 @@ from PySide6.QtCore import Signal, QObject
 from util.anki import last_note_update_time, get_last_note, get_media_dir, update_note
 
 
-from util.audio import recordAudio, SAMPLERATE
+from util.audio import recordAudio
 from util.screenshot import take_screenshot
-from util.database import AnkiSettings
+from util.database import AnkiSettings, AudioSettings
 
 from pynput import keyboard
 
@@ -127,7 +123,7 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
         sf.write(
             file=os.path.join(AnkiSettings.media_dir, f"{session}_{curr_time_str}.mp3"),
             data=np.concatenate(audio_data),
-            samplerate=SAMPLERATE
+            samplerate=AudioSettings.samplerate
         )
         update_fields["SentenceAudio"] = f"[sound:{session}_{curr_time_str}.mp3]"
     elif audio:
@@ -149,34 +145,7 @@ def record(session, audio=False, screenshot=False, audio_data=None, tags=""):
     hotkeys_enabled = True
 
 
-def updateSessions():
-    with open(os.path.join(directory, "sessions.json"), "w") as f:
-        json.dump(sessions, f, indent=4)
-
-
-directory = os.path.split(os.path.realpath(__file__))[0]
-
-if not os.path.isfile(os.path.join(directory, "sessions.json")):
-    with open(os.path.join(directory, "sessions.json"), "w") as f:
-        json.dump({}, f)
-
-with open(os.path.join(directory, "sessions.json")) as f:
-    try:
-        sessions = json.load(f)
-    except ValueError:
-        sessions = {}
-
-
-temp_dir = tempfile.TemporaryDirectory()
-# print(temp_dir.name)
-# use temp_dir, and when done:
-# temp_dir.cleanup()
-
-# try:
-#     media_dir = get_media_dir()
-# except Exception as e:
-#     media_dir = None
-#     print(f"Failed to get Anki media directory.\n{e}")
+sessions = {}
 
 # sessions = {
 #     "SessionName": {
@@ -190,10 +159,10 @@ session_name = None
 button = None
 
 # se = getAS_SystemEvents()
-app = None
+# app = None
 # proc = None
 # selected_win_AX = None
-win = None
+# win = None
 
 use_button = False
 tag = ""

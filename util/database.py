@@ -46,7 +46,13 @@ class ImageSettings:
 
 
 def get_attributes(class_):
-    for a in inspect.getmembers(class_, lambda a: not (inspect.isroutine(a))):
+    # for a in inspect.getmembers(class_, lambda a: not (inspect.isroutine(a))):
+    #     if a[0].startswith("__") and a[0].endswith("__"):
+    #         continue
+    #     yield a
+    for a in vars(class_).items():
+        if inspect.isroutine(a[1]):
+            continue
         if a[0].startswith("__") and a[0].endswith("__"):
             continue
         yield a
@@ -195,7 +201,11 @@ class AudioDB:
 
                 temp_audio = BytesIO()
 
-                with sf.SoundFile(temp_audio, mode="w", format="WAV", channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
+                format = "WAV"
+                if "MP3" in sf.available_formats():
+                    format = "MP3"
+
+                with sf.SoundFile(temp_audio, mode="w", format=format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
                     f.write(buffer.data)
 
                 conn.execute("""
@@ -288,18 +298,43 @@ class LineDB:
                     yield data
 
 
+class SessionDB:
+
+    def __init__(self, path) -> None:
+        self.path = path
+        self.create_table()
+
+    def create_table(self):
+        with closing(sqlite3.connect(self.path)) as conn:
+            with conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS sessions (
+                            name            TEXT PRIMARY KEY,
+                            AppName         TEXT,
+                            WindowTitle     TEXT
+                );""")
+
+    def store_sessions(self, sessions):
+        with closing(sqlite3.connect(self.path)) as conn:
+            with conn:
+                conn.execute("DELETE FROM sessions;")
+                for name in sessions:
+                    conn.execute("""
+                        INSERT INTO sessions (name, AppName, WindowTitle)
+                        VALUES (?, ?, ?);
+                    """, (name, sessions[name]["AppName"], sessions[name]["WindowTitle"]))
+
+    def load_sessions(self):
+        sessions_dict = {}
+        with closing(sqlite3.connect(self.path)) as conn:
+            with conn:
+                for name, a_name, w_title in conn.execute("SELECT name, AppName, WindowTitle FROM sessions"):
+                    sessions_dict[name] = {"AppName": a_name, "WindowTitle": w_title}
+        return sessions_dict
+
+
 settings = Settings("database.db")
 imagedb = ImageDB("database.db")
 audiodb = AudioDB("database.db")
 linedb = LineDB("database.db")
-
-
-# settings.store_settings()
-# settings.update_option("anki", "port", 9000)
-# settings.load_settings()
-
-# print(GeneralSettings.storage_time_limit)
-
-# for a in audiodb.load_inactive_intervals():
-#     # print(f"{a[0]} {a[0].shape} {a[1]}")
-#     print(a)
+sessionsdb = SessionDB("database.db")

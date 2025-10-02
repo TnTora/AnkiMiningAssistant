@@ -15,8 +15,8 @@ import util.screenshot as screenshot
 from util.database import audiodb, AudioSettings, GeneralSettings
 
 monitoringAudio = None
-SAMPLERATE = 44100
-INTERVAL_DURATION = 512/16000
+# SAMPLERATE = 44100
+# INTERVAL_DURATION = 512/16000
 mic = None
 buffer = None
 secondary_buffer = None
@@ -50,7 +50,7 @@ class AudioBuffer:
 
     def __init__(self, channels=2, max_time=None, is_primary=False):
         max_time = max_time or AudioBuffer.storage_time_limit.total_seconds()
-        max_intervals = int(max_time // INTERVAL_DURATION)+1
+        max_intervals = int(max_time // AudioSettings.interval_duration)+1
         self.deque = deque(maxlen=max_intervals)
         self.channels = channels
         if is_primary:
@@ -180,10 +180,22 @@ class AudioBuffer:
 
         timing_adjustment = AudioBuffer.get_timing_adjustment(curr_time, line_time)
 
-        line_start = len(data_copy) - int(((curr_time - line_time) - timing_adjustment).total_seconds() // INTERVAL_DURATION)
+        line_start = len(data_copy) - int(((curr_time - line_time) - timing_adjustment).total_seconds() // AudioSettings.interval_duration)
 
         if line_end is None:
-            line_end = line_start + int(line_audio_length.total_seconds() // INTERVAL_DURATION)
+            line_end = line_start + int(line_audio_length.total_seconds() // AudioSettings.interval_duration)
+
+        last_active_interval = line_end
+
+        j = line_start + 1
+        for i in self.slice_(line_start+1, line_end):
+            j += 1
+            if i.vad > 0.5:
+                last_active_interval = j
+
+        padding = 10
+        line_start = max(line_start - padding, 0)
+        line_end = last_active_interval + padding
 
         if save_on_disk:
             save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
@@ -219,13 +231,12 @@ def get_mics():
 
 def recordAudio(filepath):
     global recording
-    INTERVAL_DURATION = 0.1
     data = None
     try:
         recording = threading.Event()
         with mic.recorder(samplerate=AudioSettings.samplerate) as r:
             while True:
-                _data = r.record(numframes=int(AudioSettings.samplerate*INTERVAL_DURATION))
+                _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
                 if data is None:
                     data = _data
                 else:
@@ -241,9 +252,6 @@ def recordAudio(filepath):
 
 
 class recordAudioBuffer(threading.Thread):
-
-    resume_on_detected_voice = AudioSettings.resume_on_detected_voice
-    continuous_recording = AudioSettings.continuous
 
     def __init__(self):
         super().__init__()
@@ -271,14 +279,14 @@ class recordAudioBuffer(threading.Thread):
                         PAUSE = 0
                         for interval in secondary_buffer:
                             buffer.deque.append(interval)
-                        AudioBuffer.resume(offset=int(len(secondary_buffer)*INTERVAL_DURATION))
+                        AudioBuffer.resume(offset=int(len(secondary_buffer)*AudioSettings.interval_duration))
                         self.resume_rec = threading.Event()
                         print("resuming")
 
-                    _data = r.record(numframes=int(AudioSettings.samplerate*INTERVAL_DURATION))
+                    _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
 
                     # if AudioBuffer.inactive:
-                    #     sleep(INTERVAL_DURATION)
+                    #     sleep(AudioSettings.interval_duration)
                     #     continue
 
                     data_tensor = torch.from_numpy(_data).reshape((2, -1))
@@ -293,18 +301,18 @@ class recordAudioBuffer(threading.Thread):
                     # print(f"prob: {speech_prob};    PAUSE: {PAUSE}")
 
                     if speech_prob < 0.5:
-                        PAUSE += INTERVAL_DURATION
+                        PAUSE += AudioSettings.interval_duration
                     else:
                         PAUSE = 0
-                        if AudioBuffer.inactive and self.resume_on_detected_voice:
+                        if AudioBuffer.inactive and AudioSettings.resume_on_detected_voice:
                             AudioBuffer.resume()
 
                     if AudioBuffer.inactive:
                         secondary_buffer.update(_data, speech_prob)
-                        sleep(min(INTERVAL_DURATION, 0.05))
+                        sleep(min(AudioSettings.interval_duration, 0.05))
                         continue
 
-                    if PAUSE > 5 and not self.continuous_recording:
+                    if PAUSE > 5 and not AudioSettings.continuous_recording:
                         print("pausing")
                         # AudioBuffer.inactive = True
                         # screenshot.ImageTempStorage.inactive = True
@@ -316,6 +324,6 @@ class recordAudioBuffer(threading.Thread):
 
         except KeyboardInterrupt:
             pass
-        finally:
-            AudioBuffer.inactive = False
-            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)
+        # finally:
+        #     AudioBuffer.inactive = False
+        #     sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)
