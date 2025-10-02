@@ -38,8 +38,8 @@ except objc.error as e:
     print(e)
 
 
-app_info = NSBundle.mainBundle().infoDictionary()
-app_info["LSBackgroundOnly"] = "1"  # used to suppress python macOS dock icon pop up/bounce
+# app_info = NSBundle.mainBundle().infoDictionary()
+# app_info["LSBackgroundOnly"] = "1"  # suppress python macOS dock icon pop up/bounce but windows cannot be focused
 
 
 runLoop = NSRunLoop.currentRunLoop()
