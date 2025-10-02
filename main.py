@@ -1,13 +1,13 @@
 import sys
 import soundcard as sc
-import numpy as np
+# import numpy as np
 
 from PySide6.QtCore import (
     Qt,
     QRunnable,
     QThreadPool,
-    Slot,
-    QTimer
+    # Slot,
+    QTimer,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,18 +29,26 @@ from PySide6.QtWidgets import (
 
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 from util.anki import start_monitoring_anki
-from util.database import settings, imagedb, audiodb, linedb
+from util.database import (
+    settings,
+    imagedb,
+    audiodb,
+    linedb,
+    sessionsdb
+)
 from util.mac import (
     getAllApps,
     # getAS_Process,
     getAppWindows,
-    getAppAXWindows,
-    getAXWindowFromWindowInfo
+    # getAppAXWindows,
+    # getAXWindowFromWindowInfo
 )
 import util.sockets
 import util.audio as audio
 import util.screenshot as screenshot
 import util.util as ut
+
+from settings_gui import SettingsWindow
 
 
 class ConfirmationDialog(QDialog):
@@ -64,46 +72,47 @@ class ConfirmationDialog(QDialog):
         self.setLayout(layout)
 
 
+class PlayerState:
+    total_intervals = 0
+    cursor = 0
+    playing = False
+
+
 class Player_Worker(QRunnable):
     """Worker thread."""
 
-    def __init__(self, main_window):
+    def __init__(self):
         super().__init__()
-        self.main_window = main_window
-        self._data = None
-        self.frames = None
-        self._dataT = None
-        self.step = 1000
-        self.playing = False
-        self.cursor = 0
+        # self._data = None
+        # self.frames = None
+        # self._dataT = None
+        # self.step = 1000
 
-    @Slot()
     def run(self):
-        if self._data is None:
-            return
+        # if self._data is None:
+        #     return
 
-        if int(self.cursor/self.step) == (int(self.frames/self.step)-1):
-            self.cursor = 0
+        # if int(self.cursor/self.step) == (int(self.frames/self.step)-1):
+        #     self.cursor = 0
 
-        with sc.default_speaker().player(samplerate=audio.SAMPLERATE) as sp:
-            for i in range(int(self.cursor/self.step), int(self.frames/self.step)):
-                self.cursor = i*self.step
-                if not self.playing:
-                    audio.PLAYBACK = False
+        if PlayerState.cursor == PlayerState.total_intervals:
+            PlayerState.cursor = 0
+
+        with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=83) as sp:
+            # for i in range(int(self.cursor/self.step), int(self.frames/self.step)):
+            #     self.cursor = i*self.step
+            #     if not self.playing:
+            #         audio.PLAYBACK = False
+            #         break
+            #     temp = self._dataT[:, i*self.step:(i+1)*self.step]
+            #     # temp = librosa.effects.time_stretch(temp, rate=2)
+            #     sp.play(temp.T)
+            for interval in audio.buffer.slice_(start_idx=PlayerState.cursor):
+                if not PlayerState.playing:
+                    PlayerState.playing = False
                     break
-                # print(f"{i}: [{i*step}:{(i+1)*step}]")
-                # print(_dataT[i*500:(i+1)*500])
-                # print("-"*20)
-                temp = self._dataT[:, i*self.step:(i+1)*self.step]
-                # temp = librosa.effects.time_stretch(temp, rate=2)
-                # print(temp)
-                sp.play(temp.T)
-
-        self.playing = False
-        self.main_window.play_button.setText("Play")
-
-        # if self.main_window.av_monitoring and audio.monitoringAudio is None:
-        #     audio.startMonitoringAudio(self.main_window.listwidget, self.main_window.audio_data, self.main_window.audio_info)
+                sp.play(interval.data)
+                PlayerState.cursor += 1
 
 
 class MainWindow(QMainWindow):
@@ -111,6 +120,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.apps = getAllApps()
         self.windows = None
+        self.sessions = sessionsdb.load_sessions()
         self.mikes, preferred_idx = audio.get_mics()
 
         self.audio_data = []
@@ -118,20 +128,24 @@ class MainWindow(QMainWindow):
         self.av_monitoring = False
 
         self.setWindowTitle("miningVN")
-        self.layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout()
 
         self.sessionLayout = QHBoxLayout()
 
         self.session_select = QComboBox()
-        self.session_select.addItems(list(ut.sessions.keys()))
+        self.session_select.addItems(list(self.sessions.keys()))
         self.session_select.currentTextChanged.connect(self.set_session)
         self.sessionLayout.addWidget(self.session_select)
 
-        self.reload_button = QPushButton("Reload")
+        self.reload_button = QPushButton("Re")
         self.reload_button.released.connect(lambda: self.set_session(self.session_select.currentText()))
         self.sessionLayout.addWidget(self.reload_button)
 
-        self.layout.addLayout(self.sessionLayout)
+        self.save_session_button = QPushButton("Save")
+        # self.save_session_button.released.connect(lambda: self.set_session(self.session_select.currentText()))
+        self.sessionLayout.addWidget(self.save_session_button)
+
+        self.main_layout.addLayout(self.sessionLayout)
 
         self.app_sel_Layout = QHBoxLayout()
 
@@ -149,7 +163,7 @@ class MainWindow(QMainWindow):
         self.app_refresh.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.app_sel_Layout.addWidget(self.app_refresh)
 
-        self.layout.addLayout(self.app_sel_Layout)
+        self.main_layout.addLayout(self.app_sel_Layout)
 
         self.win_sel_Layout = QHBoxLayout()
 
@@ -161,7 +175,7 @@ class MainWindow(QMainWindow):
         self.window_select.currentIndexChanged.connect(self.set_window)
         self.win_sel_Layout.addWidget(self.window_select)
 
-        self.layout.addLayout(self.win_sel_Layout)
+        self.main_layout.addLayout(self.win_sel_Layout)
 
         self.mic_sel_Layout = QHBoxLayout()
 
@@ -176,12 +190,13 @@ class MainWindow(QMainWindow):
             self.mic_select.setCurrentIndex(preferred_idx)
         self.mic_sel_Layout.addWidget(self.mic_select)
 
-        self.layout.addLayout(self.mic_sel_Layout)
+        self.main_layout.addLayout(self.mic_sel_Layout)
 
-        self.use_audio_button = QCheckBox("Use audio button")
-        self.use_audio_button.stateChanged.connect(self.set_use_audio_button)
-        # self.use_audio_button.checkStateChanged.connect(self.set_use_audio_button)
-        self.layout.addWidget(self.use_audio_button)
+        self.continuous_recording = QCheckBox("Continuous Recording")
+        if settings.audio.continuous:
+            self.continuous_recording.setCheckState(Qt.CheckState.Checked)
+        self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
+        self.main_layout.addWidget(self.continuous_recording)
 
         self.buttonHlayout = QHBoxLayout()
 
@@ -197,7 +212,7 @@ class MainWindow(QMainWindow):
         self.rec_both_button.released.connect(self.getBoth)
         self.buttonHlayout.addWidget(self.rec_both_button)
 
-        self.layout.addLayout(self.buttonHlayout)
+        self.main_layout.addLayout(self.buttonHlayout)
 
         self.playerHlayout = QHBoxLayout()
 
@@ -219,7 +234,7 @@ class MainWindow(QMainWindow):
         self.audio_slider.sliderMoved.connect(self.slider_moved)
         self.playerHlayout.addWidget(self.audio_slider)
 
-        self.layout.addLayout(self.playerHlayout)
+        self.main_layout.addLayout(self.playerHlayout)
 
         self.listwidget = QListWidget()
         # self.listwidget.addItems(["test 1", "test 2", "test 3"])
@@ -227,28 +242,28 @@ class MainWindow(QMainWindow):
         self.listwidget.setAlternatingRowColors(True)
         self.listwidget.itemSelectionChanged.connect(self.changedSelection)
 
-        self.monitoring_button = QPushButton("Start Monitoring Audio")
+        self.monitoring_button = QPushButton("Start Monitoring")
         self.monitoring_button.released.connect(self.audioMonitor)
-        self.layout.addWidget(self.monitoring_button)
+        self.main_layout.addWidget(self.monitoring_button)
 
-        self.layout.addWidget(self.listwidget)
+        self.main_layout.addWidget(self.listwidget)
 
-        self.layout.addWidget(QLabel("Last Anki Note"))
+        self.main_layout.addWidget(QLabel("Last Anki Note"))
 
         self.last_note_info = QLabel("Word:\nSentence:")
-        self.layout.addWidget(self.last_note_info)
+        self.main_layout.addWidget(self.last_note_info)
 
         self.set_session(self.session_select.currentText())
 
         widget = QWidget()
-        widget.setLayout(self.layout)
+        widget.setLayout(self.main_layout)
         self.setCentralWidget(widget)
 
         ut.signals.confirm.connect(self.openConfirmationDialog)
 
         self.threadpool = QThreadPool()
-        self.player = Player_Worker(self)
-        self.player.setAutoDelete(False)
+        self.player = Player_Worker()
+        # self.player.setAutoDelete(False)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.updateSlider)
@@ -256,14 +271,20 @@ class MainWindow(QMainWindow):
 
         start_monitoring_anki(self.update_anki_note_info)
 
+        self.settings_window = SettingsWindow()
+        self.settings_window.show()
+
     def update_anki_note_info(self, info):
         self.last_note_info.setText(info)
 
     def updateSlider(self):
-        if self.player._data is None:
-            return
+        # if self.player._data is None:
+        #     return
         # print(f"timeout value: {int(self.player.cursor/self.player.frames*10000)}, cursor: {self.player.cursor}, frames: {self.player.frames}")
-        self.audio_slider.setValue(int(self.player.cursor/self.player.frames*10000))
+        value = 0
+        if PlayerState.cursor > 0:
+            value = int(PlayerState.cursor/PlayerState.total_intervals*10000)
+        self.audio_slider.setValue(value)
 
     def refresh_app_list(self):
         self.apps = getAllApps()
@@ -273,7 +294,7 @@ class MainWindow(QMainWindow):
     def set_session(self, key):
         if not key:
             return
-        print(f"session: {ut.sessions[key]}")
+        print(f"session: {self.sessions[key]}")
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
         try:
@@ -282,19 +303,19 @@ class MainWindow(QMainWindow):
             self.app_select.addItems([a.localizedName() for a in self.apps])
             self.app_select.setCurrentIndex(-1)
             for i in range(len(self.apps)):
-                if self.apps[i].localizedName() == ut.sessions[key]["AppName"]:
+                if self.apps[i].localizedName() == self.sessions[key]["AppName"]:
                     self.app_select.setCurrentIndex(i)
                     break
             if self.app_select.currentIndex() < 0:
-                raise Exception(f"{ut.sessions[key]["AppName"]} not running")
+                raise Exception(f"{self.sessions[key]["AppName"]} not running")
             self.set_app(self.app_select.currentIndex())
             self.window_select.setCurrentIndex(-1)
             for i in range(len(self.windows)):
-                if self.windows[i]["kCGWindowName"] == ut.sessions[key]["WindowTitle"]:
+                if self.windows[i]["kCGWindowName"] == self.sessions[key]["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
             if self.window_select.currentIndex() < 0:
-                raise Exception(f"{ut.sessions[key]["WindowTitle"]} window not found")
+                raise Exception(f"{self.sessions[key]["WindowTitle"]} window not found")
             self.set_window(self.window_select.currentIndex())
         except Exception as e:
             print(e)
@@ -304,7 +325,7 @@ class MainWindow(QMainWindow):
 
     def set_app(self, index):
         print(f"self.apps[index]: {self.apps[index]}")
-        ut.app = self.apps[index]
+        # ut.app = self.apps[index]
         # ut.proc = getAS_Process(ut.se, ut.app)
         self.windows = getAppWindows(self.apps[index])
         self.window_select.clear()
@@ -314,7 +335,7 @@ class MainWindow(QMainWindow):
         try:
             print(f"self.windows[index]: {self.windows[index]}")
             screenshot.win = self.windows[index]
-            ut.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(ut.app), self.windows[index])
+            # ut.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(ut.app), self.windows[index])
         except Exception as e:
             print(e)
 
@@ -325,12 +346,12 @@ class MainWindow(QMainWindow):
             audio.buffer = audio.AudioBuffer(channels=audio.mic.channels, is_primary=True)
             audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
 
-    def set_use_audio_button(self, state):
+    def set_continuous_recording(self, state):
         print(f"state: {state}")
         if state:
-            ut.use_button = True
+            settings.audio.continuous = True
         else:
-            ut.use_button = False
+            settings.audio.continuous = False
 
     def audioMonitor(self):
         if not self.av_monitoring:
@@ -381,27 +402,29 @@ class MainWindow(QMainWindow):
         ut.condition.set()
 
     def playAudio(self):
-        if self.player._data is None:
-            sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
-            self.player._data = np.concatenate([self.audio_data[i] for i in sel_indeces])
-            self.player.frames = self.player._data.shape[0]
-            self.player._dataT = self.player._data.T
-            self.player.cursor = 0
-        if self.player.playing:
+        # if self.player._data is None:
+        #     sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
+        #     self.player._data = np.concatenate([self.audio_data[i] for i in sel_indeces])
+        #     self.player.frames = self.player._data.shape[0]
+        #     self.player._dataT = self.player._data.T
+        if PlayerState.playing:
             self.play_button.setText("Play")
-            self.player.playing = False
+            PlayerState.playing = False
             # audio.PLAYBACK = False
         else:
             self.play_button.setText("Pause")
-            self.player.playing = True
+            PlayerState.total_intervals = len(audio.buffer)
+            # PlayerState.cursor = 0
+            PlayerState.playing = True
+            self.player = Player_Worker()
             # audio.PLAYBACK = True
             self.threadpool.start(self.player)
 
     def slider_moved(self):
-        if self.player._data is None:
-            return
-        self.player.playing = False
-        self.player.cursor = int((self.audio_slider.value()/10000)*self.player.frames)
+        # if self.player._data is None:
+        #     return
+        PlayerState.playing = False
+        PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
 
     def changedSelection(self):
         self.player._data = None
