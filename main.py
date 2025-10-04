@@ -3,6 +3,7 @@ import soundcard as sc
 # import numpy as np
 from datetime import datetime
 
+from PySide6.QtGui import QFont
 from PySide6.QtCore import (
     Qt,
     QRunnable,
@@ -27,6 +28,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QSlider,
     QSizePolicy,
+    QStatusBar,
+    QGroupBox,
+    QGridLayout,
 )
 
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
@@ -83,32 +87,15 @@ class PlayerState:
 class Player_Worker(QRunnable):
     """Worker thread."""
 
-    def __init__(self):
-        super().__init__()
-        # self._data = None
-        # self.frames = None
-        # self._dataT = None
-        # self.step = 1000
+    # def __init__(self):
+    #     super().__init__()
 
     def run(self):
-        # if self._data is None:
-        #     return
-
-        # if int(self.cursor/self.step) == (int(self.frames/self.step)-1):
-        #     self.cursor = 0
 
         if PlayerState.cursor == PlayerState.total_intervals:
             PlayerState.cursor = 0
 
         with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=83) as sp:
-            # for i in range(int(self.cursor/self.step), int(self.frames/self.step)):
-            #     self.cursor = i*self.step
-            #     if not self.playing:
-            #         audio.PLAYBACK = False
-            #         break
-            #     temp = self._dataT[:, i*self.step:(i+1)*self.step]
-            #     # temp = librosa.effects.time_stretch(temp, rate=2)
-            #     sp.play(temp.T)
             for interval in audio.buffer.slice_(start_idx=PlayerState.cursor):
                 if not PlayerState.playing:
                     PlayerState.playing = False
@@ -122,7 +109,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.apps = getAllApps()
         self.windows = None
-        # self.sessions = sessionsdb.load_sessions()
         self.mikes, preferred_idx = audio.get_mics()
 
         self.audio_data = []
@@ -132,110 +118,85 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("miningVN")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
-        self.main_layout = QVBoxLayout()
 
-        self.sessionLayout = QHBoxLayout()
+        self.session_box = QGroupBox("Session")
+        self.session_box.setMaximumWidth(280)
+
+        self.anki_box = QGroupBox("Anki")
+        self.anki_box.setMinimumWidth(370)
 
         self.session_select = QComboBox()
         self.session_select.setEditable(True)
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
         self.session_select.currentTextChanged.connect(self.set_session)
-        self.sessionLayout.addWidget(self.session_select)
 
-        self.new_session_button = QPushButton("New")
+        self.new_session_button = QPushButton("+")
         self.new_session_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.new_session_button.released.connect(self.add_session)
-        self.sessionLayout.addWidget(self.new_session_button)
-
-        self.main_layout.addLayout(self.sessionLayout)
-
-        self.app_sel_Layout = QHBoxLayout()
 
         self.app_sel_label = QLabel("App: ")
         self.app_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        self.app_sel_Layout.addWidget(self.app_sel_label)
 
         self.app_select = QComboBox()
         self.app_select.addItems([a.localizedName() for a in self.apps])
         self.app_select.setCurrentIndex(-1)
         self.app_select.currentIndexChanged.connect(self.set_app)
-        self.app_sel_Layout.addWidget(self.app_select)
 
-        self.app_refresh = QPushButton("Refresh")
-        self.app_refresh.released.connect(self.refresh_app_list)
-        self.app_refresh.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.app_sel_Layout.addWidget(self.app_refresh)
-
-        self.main_layout.addLayout(self.app_sel_Layout)
-
-        self.win_sel_Layout = QHBoxLayout()
-
-        self.win_sel_label = QLabel("Win: ")
-        self.win_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        self.win_sel_Layout.addWidget(self.win_sel_label)
+        self.win_sel_label = QLabel("Window: ")
+        # self.win_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
         self.window_select = QComboBox()
         self.window_select.currentIndexChanged.connect(self.set_window)
-        self.win_sel_Layout.addWidget(self.window_select)
-
-        self.main_layout.addLayout(self.win_sel_Layout)
 
         # Set session after creating app and window widgets since they are
         # used in set_session
-
         if settings.general.last_session:
-            # print(list(sessionsdb.sessions_dict.keys()))
-            # print(settings.general.last_session)
-            # print(f"last idx: {list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session)}")
             self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
 
-        self.mic_sel_Layout = QHBoxLayout()
-
         self.mic_sel_label = QLabel("Mic: ")
-        self.mic_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        self.mic_sel_Layout.addWidget(self.mic_sel_label)
+        # self.mic_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
         self.mic_select = QComboBox()
         self.mic_select.addItems([f"{mic}" for mic in self.mikes])
         self.mic_select.currentIndexChanged.connect(self.set_mic)
         if preferred_idx is not None:
             self.mic_select.setCurrentIndex(preferred_idx)
-        self.mic_sel_Layout.addWidget(self.mic_select)
-
-        self.main_layout.addLayout(self.mic_sel_Layout)
 
         self.continuous_recording = QCheckBox("Continuous Recording")
+
         if settings.audio.continuous_recording:
             self.continuous_recording.setCheckState(Qt.CheckState.Checked)
-        self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
-        self.main_layout.addWidget(self.continuous_recording)
 
-        self.buttonHlayout = QHBoxLayout()
+        self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
 
         self.rec_screen_button = QPushButton("Screenshot")
         self.rec_screen_button.released.connect(ut.recordHotKeyScreenshot)
-        self.buttonHlayout.addWidget(self.rec_screen_button)
 
         self.rec_audio_button = QPushButton("Audio")
         self.rec_audio_button.released.connect(self.getAudio)
-        self.buttonHlayout.addWidget(self.rec_audio_button)
 
         self.rec_both_button = QPushButton("Both")
         self.rec_both_button.released.connect(self.getBoth)
-        self.buttonHlayout.addWidget(self.rec_both_button)
 
-        self.main_layout.addLayout(self.buttonHlayout)
+        self.anki_info_grid = QGridLayout()
+        self.anki_info_grid.setColumnStretch(1, 1)
+        self.anki_info_grid.setRowStretch(1, 1)
 
-        self.playerHlayout = QHBoxLayout()
+        self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignVCenter)
+        self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignTop)
 
-        self.play_button = QPushButton("Play")
-        self.play_button.released.connect(self.playAudio)
-        self.playerHlayout.addWidget(self.play_button)
+        self.anki_font = QFont()
+        self.anki_font.setPointSize(18)
+        self.anki_last_card = QLabel()
+        self.anki_last_card.setFont(self.anki_font)
+        self.sentence_font = QFont()
+        self.sentence_font.setPointSize(15)
+        self.anki_sentence = QLabel()
+        self.anki_sentence.setWordWrap(True)
+        self.anki_sentence.setFont(self.sentence_font)
 
-        self.rate_select = QComboBox()
-        self.rate_select.addItems(["1", "1.25", "1.5", "2"])
-        # self.rate_select.currentIndexChanged.connect(self.set_rate)
-        self.playerHlayout.addWidget(self.rate_select)
+        self.auto_update_check = QCheckBox("Auto Update")
+        self.open_in_browser_check = QCheckBox("Open in Browser")
 
         self.audio_slider = QSlider()
         self.audio_slider.setMinimum(0)
@@ -244,30 +205,106 @@ class MainWindow(QMainWindow):
         self.audio_slider.setSingleStep(1)
         self.audio_slider.setOrientation(Qt.Horizontal)
         self.audio_slider.sliderMoved.connect(self.slider_moved)
-        self.playerHlayout.addWidget(self.audio_slider)
+        # self.playerHlayout.addWidget(self.audio_slider)
 
-        self.main_layout.addLayout(self.playerHlayout)
+        self.playerHlayout = QHBoxLayout()
+
+        self.play_button = QPushButton("Play")
+        self.play_button.released.connect(self.playAudio)
 
         self.listwidget = QListWidget()
-        # self.listwidget.addItems(["test 1", "test 2", "test 3"])
-        self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.listwidget.setAlternatingRowColors(True)
+        self.list_font = QFont()
+        self.list_font.setPointSize(20)
+        self.listwidget.setFont(self.list_font)
+        self.listwidget.setSpacing(10)
+        self.listwidget.setWordWrap(True)
+        self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
+        self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # self.listwidget.setAlternatingRowColors(True)
         self.listwidget.itemSelectionChanged.connect(self.changedSelection)
 
         self.monitoring_button = QPushButton("Start Monitoring")
         self.monitoring_button.released.connect(self.audioMonitor)
-        self.main_layout.addWidget(self.monitoring_button)
 
+        #  Building Layout
+
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.top_row = QHBoxLayout()
+
+        self.session_box_layout = QVBoxLayout()
+        self.session_box_layout.setSpacing(5)
+
+        self.session_combo_layout = QHBoxLayout()
+        self.session_combo_layout.addWidget(self.session_select)
+        self.session_combo_layout.addWidget(self.new_session_button)
+
+        self.session_box_layout.addLayout(self.session_combo_layout)
+        self.session_box_layout.addWidget(self.app_sel_label)
+        self.session_box_layout.addWidget(self.app_select)
+        self.session_box_layout.addWidget(self.win_sel_label)
+        self.session_box_layout.addWidget(self.window_select)
+        self.session_box_layout.addWidget(self.mic_sel_label)
+        self.session_box_layout.addWidget(self.mic_select)
+        self.session_box_layout.addWidget(self.continuous_recording)
+        self.session_box.setLayout(self.session_box_layout)
+
+        self.session_out_layout = QVBoxLayout()
+        self.session_out_layout.setContentsMargins(20, 11, 0, 11)
+        self.session_out_layout.addWidget(self.session_box)
+
+        self.button_layout = QVBoxLayout()
+        self.button_layout.addWidget(self.rec_screen_button)
+        self.button_layout.addWidget(self.rec_audio_button)
+        self.button_layout.addWidget(self.rec_both_button)
+
+        self.anki_info_grid = QGridLayout()
+        self.anki_info_grid.setColumnStretch(1, 1)
+        self.anki_info_grid.setRowStretch(1, 1)
+
+        self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignVCenter)
+        self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignTop)
+        self.anki_info_grid.addWidget(self.anki_last_card, 0, 1, alignment=Qt.AlignTop | Qt.AlignLeft)
+        self.anki_info_grid.addWidget(self.anki_sentence, 1, 1, alignment=Qt.AlignTop | Qt.AlignLeft)
+
+        self.anki_checks_layout = QHBoxLayout()
+        self.anki_checks_layout.addWidget(self.auto_update_check)
+        self.anki_checks_layout.addWidget(self.open_in_browser_check)
+
+        self.anki_box_layout = QVBoxLayout()
+        self.anki_box_layout.addLayout(self.anki_info_grid)
+        self.anki_box_layout.addLayout(self.anki_checks_layout)
+        self.anki_box.setLayout(self.anki_box_layout)
+
+        self.top_right_vbox = QVBoxLayout()
+        self.top_right_vbox.addWidget(self.anki_box)
+        self.top_right_vbox.addWidget(self.audio_slider)
+        self.top_right_vbox.setContentsMargins(0, 11, 20, 11)
+
+        self.playerHlayout = QHBoxLayout()
+        self.playerHlayout.addWidget(self.play_button)
+
+        self.top_row.addLayout(self.session_out_layout)
+        self.top_row.addLayout(self.button_layout)
+        self.top_row.addLayout(self.top_right_vbox)
+
+        self.main_layout.addLayout(self.top_row)
+        self.main_layout.addLayout(self.playerHlayout)
+        self.main_layout.addWidget(self.monitoring_button)
         self.main_layout.addWidget(self.listwidget)
 
-        self.main_layout.addWidget(QLabel("Last Anki Note"))
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
 
-        self.last_note_info = QLabel("Word:\nSentence:")
-        self.main_layout.addWidget(self.last_note_info)
+        self.status_bar.addPermanentWidget(QLabel("Anki: ON"))
+        self.status_bar.addPermanentWidget(QLabel("WS: ON"))
 
         widget = QWidget()
         widget.setLayout(self.main_layout)
         self.setCentralWidget(widget)
+
+        # Extra setup
 
         ut.signals.confirm.connect(self.openConfirmationDialog)
 
@@ -284,8 +321,10 @@ class MainWindow(QMainWindow):
         # self.settings_window = SettingsWindow()
         # self.settings_window.show()
 
-    def update_anki_note_info(self, info):
-        self.last_note_info.setText(info)
+    def update_anki_note_info(self, expression, sentence):
+        # self.last_note_info.setText(info)
+        self.anki_last_card.setText(expression)
+        self.anki_sentence.setText(sentence)
 
     def add_session(self):
         new_session_name = str(datetime.now())

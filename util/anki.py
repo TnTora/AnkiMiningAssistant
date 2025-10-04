@@ -203,7 +203,7 @@ def monitor_last_note(widget_info_update=None):
                 last_note_sentence_clean = cleanhtml(last_note_info["Sentence"])
                 previous_notes.add(last_note_tmp)
                 if widget_info_update:
-                    widget_info_update(f"Word: {last_note_info["Expression"]}\nSentence: {last_note_sentence_clean}")
+                    widget_info_update(last_note_info["Expression"], last_note_sentence_clean)
                 print(f"last_note: {last_note}, start_session.timestamp(): {start_session.timestamp()*1000}")
                 if AnkiSettings.auto_update_last_note and last_note > start_session.timestamp()*1000:
                     auto_update_note()
@@ -212,7 +212,7 @@ def monitor_last_note(widget_info_update=None):
                 if last_note != -1:
                     print("No note added today")
                     last_note = -1
-                    widget_info_update("Word:\nSentence:")
+                    widget_info_update("", "")
             else:
                 traceback.print_exc()
         finally:
