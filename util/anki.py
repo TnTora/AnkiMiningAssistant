@@ -25,10 +25,10 @@ last_note_sentence_clean = None
 
 # anki_deck = "Mining"
 
-card_fields = {"Expression": AnkiSettings.expression,
-               "Sentence": AnkiSettings.sentence,
-               "Picture": AnkiSettings.picture,
-               "SentenceAudio": AnkiSettings.sentence_audio}
+# card_fields = {"Expression": AnkiSettings.expression,
+#                "Sentence": AnkiSettings.sentence,
+#                "Picture": AnkiSettings.picture,
+#                "SentenceAudio": AnkiSettings.sentence_audio}
 
 media_dir = None
 start_session = datetime.now()
@@ -71,7 +71,18 @@ def get_last_note():
 
 def get_note_info(note):
     results = invoke("notesInfo", notes=[note])
-    infos = {field: results[0]["fields"][field]["value"] for field in card_fields.values()}
+    note_type = results[0]["modelName"]
+    print(note_type)
+    if note_type not in AnkiSettings.note_types:
+        return
+    # infos = {field: results[0]["fields"][field]["value"] for field in card_fields.values()}
+    infos = {
+        "noteType": note_type,
+        "Expression": results[0]["fields"][AnkiSettings.expression[note_type]]["value"],
+        "Sentence": results[0]["fields"][AnkiSettings.sentence[note_type]]["value"],
+        "Picture": results[0]["fields"][AnkiSettings.picture[note_type]]["value"],
+        "SentenceAudio": results[0]["fields"][AnkiSettings.sentence_audio[note_type]]["value"],
+    }
     return infos
 
 
@@ -153,18 +164,18 @@ def auto_update_note():
     update_fields = {}
 
     if found_lines[0]["line"].text != last_note_sentence_clean:
-        line_update = found_lines[0]["line"].text.replace(last_note_sentence_clean, last_note_info[card_fields["Sentence"]])
+        line_update = found_lines[0]["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
 
     if line_update:
-        update_fields[card_fields["Sentence"]] = line_update
+        update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
 
     if images:
         with open(img_path, "wb") as f:
             f.write(images[0].img_bytesIO.getbuffer())
-        update_fields[card_fields["Picture"]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
+        update_fields[AnkiSettings.picture[last_note_info["noteType"]]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
     if line_audio:
-        update_fields[card_fields["SentenceAudio"]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
+        update_fields[AnkiSettings.sentence_audio[last_note_info["noteType"]]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
 
     if update_fields:
         update_note(last_note, update_fields)
@@ -189,10 +200,10 @@ def monitor_last_note(widget_info_update=None):
                 last_note_info = get_note_info(last_note)
                 if last_note_info is None:
                     continue
-                last_note_sentence_clean = cleanhtml(last_note_info[card_fields["Sentence"]])
+                last_note_sentence_clean = cleanhtml(last_note_info["Sentence"])
                 previous_notes.add(last_note_tmp)
                 if widget_info_update:
-                    widget_info_update(f"Word: {last_note_info[card_fields["Expression"]]}\nSentence: {last_note_sentence_clean}")
+                    widget_info_update(f"Word: {last_note_info["Expression"]}\nSentence: {last_note_sentence_clean}")
                 print(f"last_note: {last_note}, start_session.timestamp(): {start_session.timestamp()*1000}")
                 if AnkiSettings.auto_update_last_note and last_note > start_session.timestamp()*1000:
                     auto_update_note()

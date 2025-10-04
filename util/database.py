@@ -12,7 +12,7 @@ class GeneralSettings:
     last_session = None
     storage_time_limit = timedelta(minutes=5, seconds=0)
     ws_port = 6678
-    listen_urls = "localhost:6677,localhost:2333"
+    listen_urls = ["localhost:6677", "localhost:2333"]
 
 
 class AnkiSettings:
@@ -22,10 +22,19 @@ class AnkiSettings:
     auto_update_last_note = True
     open_note_in_gui = True
     deck = "*"
-    expression = "Expression"
-    sentence = "Sentence"
-    picture = "Picture"
-    sentence_audio = "SentenceAudio"
+    note_types = ["Lapis"]
+    expression = {
+        "Lapis": "Expression",
+    }
+    sentence = {
+        "Lapis": "Sentence",
+    }
+    picture = {
+        "Lapis": "Picture",
+    }
+    sentence_audio = {
+        "Lapis": "SentenceAudio",
+    }
 
 
 class AudioSettings:
@@ -34,7 +43,7 @@ class AudioSettings:
     interval_duration = 512/16000
     mic = None
     resume_on_detected_voice = False
-    continuous = False
+    continuous_recording = False
 
 
 class ImageSettings:
@@ -67,6 +76,7 @@ class Settings:
         self.audio = AudioSettings
         self.image = ImageSettings
         self.create_table()
+        self.load_settings()
 
     def create_table(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -90,6 +100,10 @@ class Settings:
                         value_type = type(value).__name__
                         if value_type == "timedelta":
                             value = value.total_seconds()
+                        if value_type == "list":
+                            value = ",".join(value)
+                        if value_type == "dict":
+                            value = ",".join([f"{key}:{val}" for key, val in value.items()])
                         conn.execute("""
                             INSERT INTO settings (section, option, type, value)
                             VALUES (?, ?, ?, ?)
@@ -118,6 +132,10 @@ class Settings:
                     section_class = getattr(self, section)
                     if value_type == "timedelta":
                         value = timedelta(seconds=value)
+                    if value_type == "list":
+                        value = value.split(",")
+                    if value_type == "dict":
+                        value = {key: val for key, val in (tuple(a.split(":")) for a in value.split(","))}
                     setattr(section_class, option, value)
                     # print(f"section: {section_class}, option: {option}, value_type: {value_type}, value: {value}")
 
@@ -302,7 +320,14 @@ class SessionDB:
 
     def __init__(self, path) -> None:
         self.path = path
+        self.sessions_dict = {}
         self.create_table()
+        self.load_sessions()
+        if "Manual" not in self.sessions_dict:
+            self.sessions_dict["Manual"] = {
+                "AppName": "",
+                "WindowTitle": "",
+            }
 
     def create_table(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -314,23 +339,23 @@ class SessionDB:
                             WindowTitle     TEXT
                 );""")
 
-    def store_sessions(self, sessions):
+    def store_sessions(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 conn.execute("DELETE FROM sessions;")
-                for name in sessions:
+                for name in self.sessions_dict:
                     conn.execute("""
                         INSERT INTO sessions (name, AppName, WindowTitle)
                         VALUES (?, ?, ?);
-                    """, (name, sessions[name]["AppName"], sessions[name]["WindowTitle"]))
+                    """, (name, self.sessions_dict[name]["AppName"], self.sessions_dict[name]["WindowTitle"]))
 
     def load_sessions(self):
-        sessions_dict = {}
+        # sessions_dict = {}
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 for name, a_name, w_title in conn.execute("SELECT name, AppName, WindowTitle FROM sessions"):
-                    sessions_dict[name] = {"AppName": a_name, "WindowTitle": w_title}
-        return sessions_dict
+                    self.sessions_dict[name] = {"AppName": a_name, "WindowTitle": w_title}
+        # return self.sessions_dict
 
 
 settings = Settings("database.db")

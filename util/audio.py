@@ -134,7 +134,8 @@ class AudioBuffer:
         offset = timedelta(seconds=offset)
         cls.inactive = False
         screenshot.ImageTempStorage.inactive = False
-        cls.inactive_intervals[-1].end_time = datetime.now() - offset
+        if cls.inactive_intervals:
+            cls.inactive_intervals[-1].end_time = datetime.now() - offset
 
     @classmethod
     def get_timing_adjustment(cls, curr_time, line_time):
@@ -267,8 +268,9 @@ class recordAudioBuffer(threading.Thread):
     def run(self):
         try:
             PAUSE = 0
-            AudioBuffer.inactive = False
-            screenshot.ImageTempStorage.inactive = False
+            # AudioBuffer.inactive = False
+            # screenshot.ImageTempStorage.inactive = False
+            AudioBuffer.resume()
             with mic.recorder(samplerate=AudioSettings.samplerate) as r:
                 while True:
 
@@ -279,7 +281,7 @@ class recordAudioBuffer(threading.Thread):
                         PAUSE = 0
                         for interval in secondary_buffer:
                             buffer.deque.append(interval)
-                        AudioBuffer.resume(offset=int(len(secondary_buffer)*AudioSettings.interval_duration))
+                        AudioBuffer.resume(offset=len(secondary_buffer)*AudioSettings.interval_duration)
                         self.resume_rec = threading.Event()
                         print("resuming")
 
@@ -314,9 +316,6 @@ class recordAudioBuffer(threading.Thread):
 
                     if PAUSE > 5 and not AudioSettings.continuous_recording:
                         print("pausing")
-                        # AudioBuffer.inactive = True
-                        # screenshot.ImageTempStorage.inactive = True
-                        # AudioBuffer.last_active_date = datetime.now()
                         AudioBuffer.pause()
                         continue
 

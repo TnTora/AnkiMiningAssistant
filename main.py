@@ -1,6 +1,7 @@
 import sys
 import soundcard as sc
 # import numpy as np
+from datetime import datetime
 
 from PySide6.QtCore import (
     Qt,
@@ -11,6 +12,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    # QTextEdit,
     QWidget,
     QCheckBox,
     QComboBox,
@@ -24,7 +26,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QSlider,
-    QSizePolicy
+    QSizePolicy,
 )
 
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
@@ -48,7 +50,7 @@ import util.audio as audio
 import util.screenshot as screenshot
 import util.util as ut
 
-from settings_gui import SettingsWindow
+# from settings_gui import SettingsWindow
 
 
 class ConfirmationDialog(QDialog):
@@ -120,7 +122,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.apps = getAllApps()
         self.windows = None
-        self.sessions = sessionsdb.load_sessions()
+        # self.sessions = sessionsdb.load_sessions()
         self.mikes, preferred_idx = audio.get_mics()
 
         self.audio_data = []
@@ -128,22 +130,22 @@ class MainWindow(QMainWindow):
         self.av_monitoring = False
 
         self.setWindowTitle("miningVN")
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()
         self.main_layout = QVBoxLayout()
 
         self.sessionLayout = QHBoxLayout()
 
         self.session_select = QComboBox()
-        self.session_select.addItems(list(self.sessions.keys()))
+        self.session_select.setEditable(True)
+        self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
         self.session_select.currentTextChanged.connect(self.set_session)
         self.sessionLayout.addWidget(self.session_select)
 
-        self.reload_button = QPushButton("Re")
-        self.reload_button.released.connect(lambda: self.set_session(self.session_select.currentText()))
-        self.sessionLayout.addWidget(self.reload_button)
-
-        self.save_session_button = QPushButton("Save")
-        # self.save_session_button.released.connect(lambda: self.set_session(self.session_select.currentText()))
-        self.sessionLayout.addWidget(self.save_session_button)
+        self.new_session_button = QPushButton("New")
+        self.new_session_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.new_session_button.released.connect(self.add_session)
+        self.sessionLayout.addWidget(self.new_session_button)
 
         self.main_layout.addLayout(self.sessionLayout)
 
@@ -155,6 +157,7 @@ class MainWindow(QMainWindow):
 
         self.app_select = QComboBox()
         self.app_select.addItems([a.localizedName() for a in self.apps])
+        self.app_select.setCurrentIndex(-1)
         self.app_select.currentIndexChanged.connect(self.set_app)
         self.app_sel_Layout.addWidget(self.app_select)
 
@@ -177,6 +180,15 @@ class MainWindow(QMainWindow):
 
         self.main_layout.addLayout(self.win_sel_Layout)
 
+        # Set session after creating app and window widgets since they are
+        # used in set_session
+
+        if settings.general.last_session:
+            # print(list(sessionsdb.sessions_dict.keys()))
+            # print(settings.general.last_session)
+            # print(f"last idx: {list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session)}")
+            self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
+
         self.mic_sel_Layout = QHBoxLayout()
 
         self.mic_sel_label = QLabel("Mic: ")
@@ -193,7 +205,7 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(self.mic_sel_Layout)
 
         self.continuous_recording = QCheckBox("Continuous Recording")
-        if settings.audio.continuous:
+        if settings.audio.continuous_recording:
             self.continuous_recording.setCheckState(Qt.CheckState.Checked)
         self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
         self.main_layout.addWidget(self.continuous_recording)
@@ -253,8 +265,6 @@ class MainWindow(QMainWindow):
         self.last_note_info = QLabel("Word:\nSentence:")
         self.main_layout.addWidget(self.last_note_info)
 
-        self.set_session(self.session_select.currentText())
-
         widget = QWidget()
         widget.setLayout(self.main_layout)
         self.setCentralWidget(widget)
@@ -271,11 +281,21 @@ class MainWindow(QMainWindow):
 
         start_monitoring_anki(self.update_anki_note_info)
 
-        self.settings_window = SettingsWindow()
-        self.settings_window.show()
+        # self.settings_window = SettingsWindow()
+        # self.settings_window.show()
 
     def update_anki_note_info(self, info):
         self.last_note_info.setText(info)
+
+    def add_session(self):
+        new_session_name = str(datetime.now())
+        sessionsdb.sessions_dict[new_session_name] = {
+            "AppName": "",
+            "WindowTitle": "",
+        }
+        self.session_select.clear()
+        self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
+        self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), new_session_name))
 
     def updateSlider(self):
         # if self.player._data is None:
@@ -294,28 +314,30 @@ class MainWindow(QMainWindow):
     def set_session(self, key):
         if not key:
             return
-        print(f"session: {self.sessions[key]}")
+        print(f"session: {sessionsdb.sessions_dict[key]}")
+        settings.general.last_session = key
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
+        self.window_select.setCurrentIndex(-1)
         try:
             self.apps = getAllApps()
             self.app_select.clear()
             self.app_select.addItems([a.localizedName() for a in self.apps])
             self.app_select.setCurrentIndex(-1)
             for i in range(len(self.apps)):
-                if self.apps[i].localizedName() == self.sessions[key]["AppName"]:
+                if self.apps[i].localizedName() == sessionsdb.sessions_dict[key]["AppName"]:
                     self.app_select.setCurrentIndex(i)
                     break
             if self.app_select.currentIndex() < 0:
-                raise Exception(f"{self.sessions[key]["AppName"]} not running")
+                raise Exception(f"{sessionsdb.sessions_dict[key]["AppName"]} not running")
             self.set_app(self.app_select.currentIndex())
             self.window_select.setCurrentIndex(-1)
             for i in range(len(self.windows)):
-                if self.windows[i]["kCGWindowName"] == self.sessions[key]["WindowTitle"]:
+                if self.windows[i]["kCGWindowName"] == sessionsdb.sessions_dict[key]["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
             if self.window_select.currentIndex() < 0:
-                raise Exception(f"{self.sessions[key]["WindowTitle"]} window not found")
+                raise Exception(f"{sessionsdb.sessions_dict[key]["WindowTitle"]} window not found")
             self.set_window(self.window_select.currentIndex())
         except Exception as e:
             print(e)
@@ -324,7 +346,10 @@ class MainWindow(QMainWindow):
             self.window_select.currentIndexChanged.connect(self.set_window)
 
     def set_app(self, index):
+        if index < 0:
+            return
         print(f"self.apps[index]: {self.apps[index]}")
+        sessionsdb.sessions_dict[settings.general.last_session]["AppName"] = self.apps[index].localizedName()
         # ut.app = self.apps[index]
         # ut.proc = getAS_Process(ut.se, ut.app)
         self.windows = getAppWindows(self.apps[index])
@@ -332,12 +357,15 @@ class MainWindow(QMainWindow):
         self.window_select.addItems([w["kCGWindowName"] for w in self.windows])
 
     def set_window(self, index):
+
         try:
             print(f"self.windows[index]: {self.windows[index]}")
             screenshot.win = self.windows[index]
+            sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index]["kCGWindowName"]
             # ut.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(ut.app), self.windows[index])
         except Exception as e:
             print(e)
+            screenshot.win = None
 
     def set_mic(self, index):
         audio.mic = self.mikes[index]
@@ -349,9 +377,9 @@ class MainWindow(QMainWindow):
     def set_continuous_recording(self, state):
         print(f"state: {state}")
         if state:
-            settings.audio.continuous = True
+            settings.audio.continuous_recording = True
         else:
-            settings.audio.continuous = False
+            settings.audio.continuous_recording = False
 
     def audioMonitor(self):
         if not self.av_monitoring:
@@ -440,13 +468,14 @@ def update_all_dbs():
     imagedb.store_imgs(screenshot.images_tmp)
     audiodb.store_buffer(audio.buffer)
     linedb.store_lines(util.sockets.text_stored)
+    sessionsdb.store_sessions()
 
 
 def main():
     createAggregateDevice()
     # ut.hotkeys.start()
     # ut.hotkeys.wait()
-    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls.split(","))
+    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
     util.sockets.ws_server.start()
     app = QApplication(sys.argv)
     window = MainWindow()

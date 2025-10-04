@@ -8,7 +8,7 @@ from AppKit import (
     # NSBitmapImageFileTypeJPEG,
     # NSImageCompressionFactor,
     NSBitmapImageRep,
-    NSBundle,
+    # NSBundle,
     NSWorkspace,
 )
 

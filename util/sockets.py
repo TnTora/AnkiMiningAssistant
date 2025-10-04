@@ -30,6 +30,7 @@ class LinesTempStorage:
 
     def __init__(self):
         self.deque = deque()
+        self.load_from_db()
 
     def load_from_db(self):
         for data in linedb.load_lines():
