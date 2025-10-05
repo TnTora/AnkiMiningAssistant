@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QToolButton,
     # QTextEdit,
     QWidget,
     QCheckBox,
@@ -54,7 +55,7 @@ import util.audio as audio
 import util.screenshot as screenshot
 import util.util as ut
 
-# from settings_gui import SettingsWindow
+from settings_gui import SettingsWindow
 
 
 class ConfirmationDialog(QDialog):
@@ -107,6 +108,9 @@ class Player_Worker(QRunnable):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings_window = None
+        self.lines_shown = True
+        self.with_lines_height = None
         self.apps = getAllApps()
         self.windows = None
         self.mikes, preferred_idx = audio.get_mics()
@@ -115,15 +119,21 @@ class MainWindow(QMainWindow):
         self.audio_info = []
         self.av_monitoring = False
 
-        self.setWindowTitle("miningVN")
+        self.setWindowTitle("AnkiMiningAssistant")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
 
+        """
+        Creating Widgets
+        """
+
         self.session_box = QGroupBox("Session")
         self.session_box.setMaximumWidth(280)
+        self.session_box.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self.anki_box = QGroupBox("Anki")
         self.anki_box.setMinimumWidth(370)
+        self.anki_box.setMaximumHeight(180)
 
         self.session_select = QComboBox()
         self.session_select.setEditable(True)
@@ -143,7 +153,6 @@ class MainWindow(QMainWindow):
         self.app_select.currentIndexChanged.connect(self.set_app)
 
         self.win_sel_label = QLabel("Window: ")
-        # self.win_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
         self.window_select = QComboBox()
         self.window_select.currentIndexChanged.connect(self.set_window)
@@ -154,7 +163,6 @@ class MainWindow(QMainWindow):
             self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
 
         self.mic_sel_label = QLabel("Mic: ")
-        # self.mic_sel_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
         self.mic_select = QComboBox()
         self.mic_select.addItems([f"{mic}" for mic in self.mikes])
@@ -169,21 +177,17 @@ class MainWindow(QMainWindow):
 
         self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
 
-        self.rec_screen_button = QPushButton("Screenshot")
+        # self.rec_screen_button = QPushButton("Screenshot")
+        self.rec_screen_button = QToolButton()
+        self.rec_screen_button.setMinimumWidth(50)
+        self.rec_screen_button.setMinimumHeight(50)
         self.rec_screen_button.released.connect(ut.recordHotKeyScreenshot)
 
-        self.rec_audio_button = QPushButton("Audio")
+        # self.rec_audio_button = QPushButton("Audio")
+        self.rec_audio_button = QToolButton()
+        self.rec_audio_button.setMinimumWidth(50)
+        self.rec_audio_button.setMinimumHeight(50)
         self.rec_audio_button.released.connect(self.getAudio)
-
-        self.rec_both_button = QPushButton("Both")
-        self.rec_both_button.released.connect(self.getBoth)
-
-        self.anki_info_grid = QGridLayout()
-        self.anki_info_grid.setColumnStretch(1, 1)
-        self.anki_info_grid.setRowStretch(1, 1)
-
-        self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignVCenter)
-        self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignTop)
 
         self.anki_font = QFont()
         self.anki_font.setPointSize(18)
@@ -192,6 +196,7 @@ class MainWindow(QMainWindow):
         self.sentence_font = QFont()
         self.sentence_font.setPointSize(15)
         self.anki_sentence = QLabel()
+        self.anki_sentence.setAlignment(Qt.AlignTop)
         self.anki_sentence.setWordWrap(True)
         self.anki_sentence.setFont(self.sentence_font)
 
@@ -204,13 +209,15 @@ class MainWindow(QMainWindow):
         self.audio_slider.setValue(0)
         self.audio_slider.setSingleStep(1)
         self.audio_slider.setOrientation(Qt.Horizontal)
-        self.audio_slider.sliderMoved.connect(self.slider_moved)
-        # self.playerHlayout.addWidget(self.audio_slider)
-
-        self.playerHlayout = QHBoxLayout()
+        self.audio_slider.sliderReleased.connect(self.slider_released)
 
         self.play_button = QPushButton("Play")
         self.play_button.released.connect(self.playAudio)
+
+        self.show_lines_label = QLabel("∨ Hide Lines")
+        self.show_lines_label.mouseReleaseEvent = self.toggle_lines
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.released.connect(self.open_config)
 
         self.listwidget = QListWidget()
         self.list_font = QFont()
@@ -220,18 +227,18 @@ class MainWindow(QMainWindow):
         self.listwidget.setWordWrap(True)
         self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        # self.listwidget.setAlternatingRowColors(True)
         self.listwidget.itemSelectionChanged.connect(self.changedSelection)
+
+        if not self.lines_shown:
+            self.show_lines_label.setText("> Show Lines")
+            self.listwidget.hide()
 
         self.monitoring_button = QPushButton("Start Monitoring")
         self.monitoring_button.released.connect(self.audioMonitor)
 
-        #  Building Layout
-
-        self.main_layout = QVBoxLayout()
-        self.main_layout.setContentsMargins(0, 10, 0, 0)
-
-        self.top_row = QHBoxLayout()
+        """
+        Building Layout
+        """
 
         self.session_box_layout = QVBoxLayout()
         self.session_box_layout.setSpacing(5)
@@ -251,13 +258,14 @@ class MainWindow(QMainWindow):
         self.session_box.setLayout(self.session_box_layout)
 
         self.session_out_layout = QVBoxLayout()
-        self.session_out_layout.setContentsMargins(20, 11, 0, 11)
+        # self.session_out_layout.setContentsMargins(0, 0, 10, 0)
         self.session_out_layout.addWidget(self.session_box)
 
         self.button_layout = QVBoxLayout()
+        self.button_layout.setContentsMargins(0, 0, 10, 0)
         self.button_layout.addWidget(self.rec_screen_button)
         self.button_layout.addWidget(self.rec_audio_button)
-        self.button_layout.addWidget(self.rec_both_button)
+        # self.button_layout.addWidget(self.rec_both_button)
 
         self.anki_info_grid = QGridLayout()
         self.anki_info_grid.setColumnStretch(1, 1)
@@ -265,10 +273,11 @@ class MainWindow(QMainWindow):
 
         self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignVCenter)
         self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignTop)
-        self.anki_info_grid.addWidget(self.anki_last_card, 0, 1, alignment=Qt.AlignTop | Qt.AlignLeft)
-        self.anki_info_grid.addWidget(self.anki_sentence, 1, 1, alignment=Qt.AlignTop | Qt.AlignLeft)
+        self.anki_info_grid.addWidget(self.anki_last_card, 0, 1)
+        self.anki_info_grid.addWidget(self.anki_sentence, 1, 1)
 
         self.anki_checks_layout = QHBoxLayout()
+        self.anki_checks_layout.setAlignment(Qt.AlignLeft)
         self.anki_checks_layout.addWidget(self.auto_update_check)
         self.anki_checks_layout.addWidget(self.open_in_browser_check)
 
@@ -277,22 +286,44 @@ class MainWindow(QMainWindow):
         self.anki_box_layout.addLayout(self.anki_checks_layout)
         self.anki_box.setLayout(self.anki_box_layout)
 
-        self.top_right_vbox = QVBoxLayout()
+        self.top_right_vbox = QHBoxLayout()
+        # self.top_right_vbox.setContentsMargins(0, 0, 0, 10)
+        self.top_right_vbox.addLayout(self.button_layout)
         self.top_right_vbox.addWidget(self.anki_box)
-        self.top_right_vbox.addWidget(self.audio_slider)
-        self.top_right_vbox.setContentsMargins(0, 11, 20, 11)
 
-        self.playerHlayout = QHBoxLayout()
-        self.playerHlayout.addWidget(self.play_button)
+        self.player_h_layout = QHBoxLayout()
+        self.player_h_layout.addWidget(self.monitoring_button)
+        self.player_h_layout.addWidget(self.play_button)
+        self.player_h_layout.addWidget(self.audio_slider)
 
+        self.right_vbox = QVBoxLayout()
+        self.right_vbox.setContentsMargins(10, 0, 0, 0)
+        self.right_vbox.addLayout(self.top_right_vbox)
+        self.right_vbox.addLayout(self.player_h_layout)
+
+        self.top_row = QHBoxLayout()
+        self.top_row.setContentsMargins(20, 0, 20, 0)
+        self.top_row.setSpacing(5)
         self.top_row.addLayout(self.session_out_layout)
-        self.top_row.addLayout(self.button_layout)
-        self.top_row.addLayout(self.top_right_vbox)
+        self.top_row.addLayout(self.right_vbox)
 
+        self.middle_row = QHBoxLayout()
+        self.middle_row.setContentsMargins(10, 0, 10, 0)
+        self.middle_row.addWidget(self.show_lines_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
+        self.middle_row.addWidget(self.settings_button, alignment=Qt.AlignRight)
+
+        self.bottom_half = QVBoxLayout()
+        self.bottom_half.setSpacing(0)
+        self.bottom_half.setContentsMargins(0, 0, 0, 0)
+        self.bottom_half.addLayout(self.middle_row)
+        self.bottom_half.addWidget(self.listwidget)
+
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 10, 0, 0)
+        self.main_layout.setSpacing(0)
+        self.main_layout.setAlignment(Qt.AlignTop)
         self.main_layout.addLayout(self.top_row)
-        self.main_layout.addLayout(self.playerHlayout)
-        self.main_layout.addWidget(self.monitoring_button)
-        self.main_layout.addWidget(self.listwidget)
+        self.main_layout.addLayout(self.bottom_half)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -304,7 +335,9 @@ class MainWindow(QMainWindow):
         widget.setLayout(self.main_layout)
         self.setCentralWidget(widget)
 
-        # Extra setup
+        """
+        Extra setup
+        """
 
         ut.signals.confirm.connect(self.openConfirmationDialog)
 
@@ -318,8 +351,10 @@ class MainWindow(QMainWindow):
 
         start_monitoring_anki(self.update_anki_note_info)
 
-        # self.settings_window = SettingsWindow()
-        # self.settings_window.show()
+    def open_config(self):
+        if self.settings_window is None:
+            self.settings_window = SettingsWindow()
+        self.settings_window.show()
 
     def update_anki_note_info(self, expression, sentence):
         # self.last_note_info.setText(info)
@@ -337,9 +372,6 @@ class MainWindow(QMainWindow):
         self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), new_session_name))
 
     def updateSlider(self):
-        # if self.player._data is None:
-        #     return
-        # print(f"timeout value: {int(self.player.cursor/self.player.frames*10000)}, cursor: {self.player.cursor}, frames: {self.player.frames}")
         value = 0
         if PlayerState.cursor > 0:
             value = int(PlayerState.cursor/PlayerState.total_intervals*10000)
@@ -446,19 +478,9 @@ class MainWindow(QMainWindow):
 
     def getAudio(self):
         if self.av_monitoring:
-            sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
-            # print(self.audio_data)
-            # print(sel_indeces)
-            ut.recordHotKeyAudio(data=[self.audio_data[i] for i in sel_indeces])
+            pass
         else:
             ut.recordHotKeyAudio()
-
-    def getBoth(self):
-        if self.av_monitoring:
-            sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
-            ut.recordHotKeyBoth(data=[self.audio_data[i] for i in sel_indeces])
-        else:
-            ut.recordHotKeyBoth()
 
     def openConfirmationDialog(self, data):
         confirmD = ConfirmationDialog(data)
@@ -469,11 +491,6 @@ class MainWindow(QMainWindow):
         ut.condition.set()
 
     def playAudio(self):
-        # if self.player._data is None:
-        #     sel_indeces = sorted([x.row() for x in self.listwidget.selectedIndexes()])
-        #     self.player._data = np.concatenate([self.audio_data[i] for i in sel_indeces])
-        #     self.player.frames = self.player._data.shape[0]
-        #     self.player._dataT = self.player._data.T
         if PlayerState.playing:
             self.play_button.setText("Play")
             PlayerState.playing = False
@@ -487,11 +504,16 @@ class MainWindow(QMainWindow):
             # audio.PLAYBACK = True
             self.threadpool.start(self.player)
 
-    def slider_moved(self):
-        # if self.player._data is None:
-        #     return
-        PlayerState.playing = False
-        PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
+    def slider_released(self):
+        if not PlayerState.playing:
+            PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
+        else:
+            PlayerState.playing = False
+            # self.play_button.setText("Play")
+            PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
+            PlayerState.playing = True
+            self.player = Player_Worker()
+            self.threadpool.start(self.player)
 
     def changedSelection(self):
         self.player._data = None
@@ -500,6 +522,21 @@ class MainWindow(QMainWindow):
         self.player.cursor = 0
         self.player.playing = False
         audio.PLAYBACK = False
+
+    def toggle_lines(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if not self.lines_shown:
+            self.lines_shown = True
+            self.listwidget.show()
+            self.show_lines_label.setText("∨ Hide Lines")
+            self.resize(self.width(), self.with_lines_height)
+        else:
+            self.lines_shown = False
+            self.with_lines_height = self.height()
+            self.listwidget.hide()
+            self.show_lines_label.setText("> Show Lines")
+            self.resize(self.width(), self.minimumSizeHint().height())
 
 
 def update_all_dbs():
