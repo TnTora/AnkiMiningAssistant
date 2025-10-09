@@ -88,9 +88,6 @@ class PlayerState:
 class Player_Worker(QRunnable):
     """Worker thread."""
 
-    # def __init__(self):
-    #     super().__init__()
-
     def run(self):
 
         if PlayerState.cursor == PlayerState.total_intervals:
@@ -109,7 +106,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings_window = None
-        self.lines_shown = True
+        self.lines_shown = False
         self.with_lines_height = None
         self.apps = getAllApps()
         self.windows = None
@@ -165,7 +162,7 @@ class MainWindow(QMainWindow):
         self.mic_sel_label = QLabel("Mic: ")
 
         self.mic_select = QComboBox()
-        self.mic_select.addItems([f"{mic}" for mic in self.mikes])
+        self.mic_select.addItems([mic.name for mic in self.mikes])
         self.mic_select.currentIndexChanged.connect(self.set_mic)
         if preferred_idx is not None:
             self.mic_select.setCurrentIndex(preferred_idx)
@@ -433,8 +430,10 @@ class MainWindow(QMainWindow):
             print(f"self.windows[index]: {self.windows[index]}")
             screenshot.win = self.windows[index]
             sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index]["kCGWindowName"]
-            # ut.selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(ut.app), self.windows[index])
+            # selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(self.apps[self.app_select.currentIndex()]), self.windows[index])
         except Exception as e:
+            # import traceback
+            # traceback.print_exc()
             print(e)
             screenshot.win = None
 
@@ -509,11 +508,11 @@ class MainWindow(QMainWindow):
             PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
         else:
             PlayerState.playing = False
-            # self.play_button.setText("Play")
+            self.play_button.setText("Play")
             PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
-            PlayerState.playing = True
-            self.player = Player_Worker()
-            self.threadpool.start(self.player)
+            # PlayerState.playing = True
+            # self.player = Player_Worker()
+            # self.threadpool.start(self.player)
 
     def changedSelection(self):
         self.player._data = None
@@ -530,7 +529,8 @@ class MainWindow(QMainWindow):
             self.lines_shown = True
             self.listwidget.show()
             self.show_lines_label.setText("∨ Hide Lines")
-            self.resize(self.width(), self.with_lines_height)
+            height = self.with_lines_height or self.minimumSizeHint().height() + 200
+            self.resize(self.width(), height)
         else:
             self.lines_shown = False
             self.with_lines_height = self.height()

@@ -35,6 +35,7 @@ class AnkiSettings:
     sentence_audio = {
         "Lapis": "SentenceAudio",
     }
+    note_types_fields = {}
 
 
 class AudioSettings:
@@ -48,17 +49,13 @@ class AudioSettings:
 
 class ImageSettings:
 
-    format = "WebP"
+    format = "WEBP"
     webp_quality = 80
-    max_resolution = None
+    max_resolution = "1080p"
     capture_interval = 1
 
 
 def get_attributes(class_):
-    # for a in inspect.getmembers(class_, lambda a: not (inspect.isroutine(a))):
-    #     if a[0].startswith("__") and a[0].endswith("__"):
-    #         continue
-    #     yield a
     for a in vars(class_).items():
         if inspect.isroutine(a[1]):
             continue
@@ -135,7 +132,10 @@ class Settings:
                     if value_type == "list":
                         value = value.split(",")
                     if value_type == "dict":
-                        value = {key: val for key, val in (tuple(a.split(":")) for a in value.split(","))}
+                        if "," not in value:
+                            value = {}
+                        else:
+                            value = {key: val for key, val in (tuple(a.split(":")) for a in value.split(","))}
                     setattr(section_class, option, value)
                     # print(f"section: {section_class}, option: {option}, value_type: {value_type}, value: {value}")
 

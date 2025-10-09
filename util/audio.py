@@ -275,6 +275,7 @@ class recordAudioBuffer(threading.Thread):
                 while True:
 
                     if self.stop_rec.is_set():
+                        AudioBuffer.pause()
                         break
 
                     if self.resume_rec.is_set():
@@ -314,7 +315,7 @@ class recordAudioBuffer(threading.Thread):
                         sleep(min(AudioSettings.interval_duration, 0.05))
                         continue
 
-                    if PAUSE > 5 and not AudioSettings.continuous_recording:
+                    if PAUSE > 10 and not AudioSettings.continuous_recording:
                         print("pausing")
                         AudioBuffer.pause()
                         continue

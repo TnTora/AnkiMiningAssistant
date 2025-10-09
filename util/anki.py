@@ -60,6 +60,22 @@ def get_media_dir():
     return results
 
 
+def get_note_types():
+    results = invoke("modelNames")
+    return results
+
+
+def get_note_types_fields(name):
+    results = invoke("modelFieldNames", modelName=name)
+    return results
+
+
+def get_all_note_types_fields(names):
+    results = invoke("findModelsByName", modelNames=names)
+    fields_dict = {result["name"]: [field["name"] for field in result["flds"]] for result in results}
+    return fields_dict
+
+
 def get_last_note():
     results = invoke("findNotes", query=f"deck:{AnkiSettings.deck} added:1")
     if results:
