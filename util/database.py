@@ -5,6 +5,7 @@ from io import BytesIO
 import soundfile as sf
 # import numpy as np
 import inspect
+import json
 
 
 class GeneralSettings:
@@ -42,6 +43,7 @@ class AudioSettings:
 
     samplerate = 44100
     interval_duration = 512/16000
+    inactivity_pause_timer = 10
     mic = None
     resume_on_detected_voice = False
     continuous_recording = False
@@ -74,6 +76,7 @@ class Settings:
         self.image = ImageSettings
         self.create_table()
         self.load_settings()
+        self.store_settings()
 
     def create_table(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -97,10 +100,8 @@ class Settings:
                         value_type = type(value).__name__
                         if value_type == "timedelta":
                             value = value.total_seconds()
-                        if value_type == "list":
-                            value = ",".join(value)
-                        if value_type == "dict":
-                            value = ",".join([f"{key}:{val}" for key, val in value.items()])
+                        if value_type == "list" or value_type == "dict":
+                            value = json.dumps(value)
                         conn.execute("""
                             INSERT INTO settings (section, option, type, value)
                             VALUES (?, ?, ?, ?)
@@ -108,10 +109,21 @@ class Settings:
 
     def update_option(self, section, option, new_value):
 
+        value_type = type(new_value).__name__
+
         section_class = getattr(self, section)
-        if type(new_value).__name__ == "timedelta":
-            new_value = timedelta(seconds=new_value)
-        setattr(section_class, option, new_value)
+        old_value = getattr(section_class, option)
+        if isinstance(old_value, timedelta) and isinstance(new_value, (int, float)):
+            setattr(section_class, option, timedelta(seconds=new_value))
+        elif (type(old_value) is not type(None)) and (type(old_value) is not type(new_value)):
+            return
+        else:
+            setattr(section_class, option, new_value)
+
+        if value_type == "timedelta":
+            new_value = new_value.total_seconds()
+        if value_type == "list" or value_type == "dict":
+            new_value = json.dumps(new_value)
 
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
@@ -127,15 +139,12 @@ class Settings:
                 fetch = conn.execute("SELECT section, option, type, value FROM settings")
                 for section, option, value_type, value in fetch:
                     section_class = getattr(self, section)
+                    if value_type == "bool":
+                        value = bool(value)
                     if value_type == "timedelta":
                         value = timedelta(seconds=value)
-                    if value_type == "list":
-                        value = value.split(",")
-                    if value_type == "dict":
-                        if "," not in value:
-                            value = {}
-                        else:
-                            value = {key: val for key, val in (tuple(a.split(":")) for a in value.split(","))}
+                    if value_type == "list" or value_type == "dict":
+                        value = json.loads(value)
                     setattr(section_class, option, value)
                     # print(f"section: {section_class}, option: {option}, value_type: {value_type}, value: {value}")
 

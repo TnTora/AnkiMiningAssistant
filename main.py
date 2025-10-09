@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
 )
 
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
-from util.anki import start_monitoring_anki
 from util.database import (
     settings,
     imagedb,
@@ -43,6 +42,7 @@ from util.database import (
     linedb,
     sessionsdb
 )
+from util.anki import start_monitoring_anki
 from util.mac import (
     getAllApps,
     # getAS_Process,
@@ -349,8 +349,10 @@ class MainWindow(QMainWindow):
         start_monitoring_anki(self.update_anki_note_info)
 
     def open_config(self):
-        if self.settings_window is None:
-            self.settings_window = SettingsWindow()
+        # if self.settings_window is not None:
+        #     self.settings_window.close()
+        #     self.settings_window = None
+        self.settings_window = SettingsWindow()
         self.settings_window.show()
 
     def update_anki_note_info(self, expression, sentence):

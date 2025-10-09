@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QSizePolicy,
     QSpinBox,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
 )
 
 from util.database import settings
@@ -28,8 +31,13 @@ class GeneralPage(QWidget):
 
     label_info_spacing = 4
 
+    settings_widgets = {}
+
     def __init__(self):
         super().__init__()
+
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()
 
         self.buffer_label = QLabel("Buffer Length")
         self.buffer_label.setStyleSheet(self.label_style)
@@ -42,6 +50,9 @@ class GeneralPage(QWidget):
         self.buffer_spin.setMaximum(1800)
         self.buffer_spin.setSuffix("s")
         self.buffer_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.buffer_spin.setValue(settings.general.storage_time_limit.total_seconds())
+
+        GeneralPage.settings_widgets["storage_time_limit"] = self.buffer_spin
 
         self.ws_port_label = QLabel("WebSocket Port")
         self.ws_port_label.setStyleSheet(self.label_style)
@@ -49,6 +60,9 @@ class GeneralPage(QWidget):
         self.ws_port_spin = QSpinBox()
         self.ws_port_spin.setMaximum(65535)
         self.ws_port_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.ws_port_spin.setValue(settings.general.ws_port)
+
+        GeneralPage.settings_widgets["ws_port"] = self.ws_port_spin
 
         self.ws_port_info = QLabel("PORT used to communicate with texthooker")
         self.ws_port_info.setWordWrap(True)
@@ -64,12 +78,13 @@ class GeneralPage(QWidget):
         self.listen_urls = {}
 
         for url in settings.general.listen_urls:
-            tmp_line_edit = QLineEdit(url)
+            tmp_line_edit = QLabel(url)
             tmp_tool_button = QToolButton()
 
             tmp_tool_button.setText("-")
             tmp_tool_button.setMinimumSize(QSize(23, 22))
-            tmp_tool_button.clicked.connect(lambda: self.remove_listen_url(url))
+
+            tmp_tool_button.clicked.connect(lambda a, url=url: self.remove_listen_url(url))
 
             self.listen_urls[url] = [tmp_line_edit, tmp_tool_button]
 
@@ -121,7 +136,9 @@ class GeneralPage(QWidget):
 
     def add_listen_url(self):
         new_url = self.new_url_edit.text()
-        new_line_edit = QLineEdit(new_url)
+        if not new_url:
+            return
+        new_line_edit = QLabel(new_url)
         new_button = QToolButton()
         new_button.setText("-")
         new_button.setMinimumSize(QSize(23, 22))
@@ -135,3 +152,23 @@ class GeneralPage(QWidget):
     def remove_listen_url(self, url):
         row = self.listen_urls.pop(url)
         self.urls_form.removeRow(row[1])
+
+    def update_settings(self):
+        for option, wdg in GeneralPage.settings_widgets.items():
+            if isinstance(wdg, (QSpinBox, QDoubleSpinBox)):
+                value = wdg.value()
+            elif isinstance(wdg, QLineEdit):
+                value = wdg.text()
+                if not value:
+                    continue
+            elif isinstance(wdg, QCheckBox):
+                value = wdg.isChecked()
+            elif isinstance(wdg, QComboBox):
+                value = wdg.currentText()
+                if not value:
+                    continue
+            settings.update_option("general", option, value)
+
+        tmp_listen_urls = list(self.listen_urls.keys())
+        if tmp_listen_urls:
+            settings.update_option("general", "listen_urls", tmp_listen_urls)

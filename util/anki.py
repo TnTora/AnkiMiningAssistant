@@ -30,7 +30,7 @@ last_note_sentence_clean = None
 #                "Picture": AnkiSettings.picture,
 #                "SentenceAudio": AnkiSettings.sentence_audio}
 
-media_dir = None
+# media_dir = None
 start_session = datetime.now()
 
 

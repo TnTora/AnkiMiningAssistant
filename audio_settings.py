@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QSizePolicy,
     QSpinBox,
+    QLineEdit,
+    QDoubleSpinBox,
 )
 
 from util.audio import get_mics
@@ -39,6 +41,8 @@ class AudioPage(QWidget):
 
     label_info_spacing = 4
 
+    settings_widgets = {}
+
     def __init__(self):
         super().__init__()
 
@@ -49,6 +53,8 @@ class AudioPage(QWidget):
         self.samplerate_spin.setMaximum(100000)
         self.samplerate_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.samplerate_spin.setValue(settings.audio.samplerate)
+
+        AudioPage.settings_widgets["samplerate"] = self.samplerate_spin
 
         self.inactivity_label = QLabel("Pause After Inactivity of")
         self.inactivity_label.setStyleSheet(self.label_style)
@@ -65,6 +71,9 @@ class AudioPage(QWidget):
         self.inactivity_spin.setSuffix("s")
         self.inactivity_spin.setMaximum(int(settings.general.storage_time_limit.total_seconds()/2))
         self.inactivity_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.inactivity_spin.setValue(settings.audio.inactivity_pause_timer)
+
+        AudioPage.settings_widgets["inactivity_pause_timer"] = self.inactivity_spin
 
         self.continuous_recording_label = QLabel("Continuous Recording")
         self.continuous_recording_label.setStyleSheet(self.label_style)
@@ -77,6 +86,9 @@ class AudioPage(QWidget):
         self.continuous_recording_info.setStyleSheet(self.info_style)
 
         self.continuous_recording_toggle = QCheckBox(" ")
+        self.continuous_recording_toggle.setChecked(settings.audio.continuous_recording)
+
+        AudioPage.settings_widgets["continuous_recording"] = self.continuous_recording_toggle
 
         self.audio_input_label = QLabel("Preferred Audio Input")
         self.audio_input_label.setStyleSheet(self.label_style)
@@ -91,6 +103,8 @@ class AudioPage(QWidget):
         self.audio_input_combo = QComboBox()
         self.audio_input_combo.setMinimumWidth(150)
         self.audio_input_combo.setMaximumWidth(200)
+
+        AudioPage.settings_widgets["mic"] = self.audio_input_combo
 
         self.audio_input_combo.addItems([mic.name for mic in get_mics()[0]])
 
@@ -155,3 +169,18 @@ class AudioPage(QWidget):
 
         self.setLayout(self.outside_layout)
 
+    def update_settings(self):
+        for option, wdg in AudioPage.settings_widgets.items():
+            if isinstance(wdg, (QSpinBox, QDoubleSpinBox)):
+                value = wdg.value()
+            elif isinstance(wdg, QLineEdit):
+                value = wdg.text()
+                if not value:
+                    continue
+            elif isinstance(wdg, QCheckBox):
+                value = wdg.isChecked()
+            elif isinstance(wdg, QComboBox):
+                value = wdg.currentText()
+                if not value:
+                    continue
+            settings.update_option("audio", option, value)

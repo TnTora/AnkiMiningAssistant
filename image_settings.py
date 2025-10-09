@@ -2,7 +2,6 @@ from PySide6.QtCore import (
     Qt,
 )
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFrame,
@@ -13,6 +12,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QSizePolicy,
     QSpinBox,
+    QLineEdit,
+    QCheckBox,
 )
 
 from PIL import WebPImagePlugin
@@ -40,6 +41,8 @@ class ImagePage(QWidget):
 
     label_info_spacing = 4
 
+    settings_widgets = {}
+
     def __init__(self):
         super().__init__()
 
@@ -54,6 +57,8 @@ class ImagePage(QWidget):
         self.capture_interval_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.capture_interval_spin.setValue(settings.image.capture_interval)
 
+        ImagePage.settings_widgets["capture_interval"] = self.capture_interval_spin
+
         self.max_resolution_label = QLabel("Max Resolution")
         self.max_resolution_label.setStyleSheet(self.label_style)
 
@@ -67,6 +72,8 @@ class ImagePage(QWidget):
         self.max_resolution_combo.addItems(["1080p", "720p", "480p", "360p"])
         self.max_resolution_combo.setCurrentText(settings.image.max_resolution)
         # self.inactivity_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        ImagePage.settings_widgets["max_resolution"] = self.max_resolution_combo
 
         self.format_label = QLabel("Format")
         self.format_label.setStyleSheet(self.label_style)
@@ -86,6 +93,8 @@ class ImagePage(QWidget):
 
         if settings.image.format in self.available_formats:
             self.format_combo.setCurrentText(settings.image.format)
+
+        ImagePage.settings_widgets["format"] = self.format_combo
 
         """
         Building Layout
@@ -131,4 +140,20 @@ class ImagePage(QWidget):
         self.outside_layout.addWidget(self.scroll_area)
 
         self.setLayout(self.outside_layout)
+
+    def update_settings(self):
+        for option, wdg in ImagePage.settings_widgets.items():
+            if isinstance(wdg, (QSpinBox, QDoubleSpinBox)):
+                value = wdg.value()
+            elif isinstance(wdg, QLineEdit):
+                value = wdg.text()
+                if not value:
+                    continue
+            elif isinstance(wdg, QCheckBox):
+                value = wdg.isChecked()
+            elif isinstance(wdg, QComboBox):
+                value = wdg.currentText()
+                if not value:
+                    continue
+            settings.update_option("image", option, value)
 

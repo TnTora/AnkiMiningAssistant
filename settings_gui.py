@@ -4,6 +4,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import (
     QGroupBox,
+    QSpacerItem,
     QStackedWidget,
     QWidget,
     QLabel,
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
 )
 
-from util.database import settings
+# from util.database import settings
 from general_settings import GeneralPage
 from anki_settings import AnkiPage
 from audio_settings import AudioPage
@@ -25,10 +26,24 @@ class SettingsWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+
+        self.setStyleSheet("""
+            QToolButton {
+                border: 1px solid #8f8f91;
+                border-radius: 6px;
+                background-color: gray;
+            }
+
+            QToolButton:pressed {
+                background-color: #999999;
+            }
+        """)
+
         self.setWindowTitle("Settings")
         self.setMinimumWidth(660)
         self.setMinimumHeight(390)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         # self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
         self.stacked_widget = QStackedWidget()
@@ -44,11 +59,10 @@ class SettingsWindow(QWidget):
 
         self.image_page = ImagePage()
         self.stacked_widget.addWidget(self.image_page)
-
+        # background-color:rgb(57, 57, 57);
         self.sidebar = QGroupBox()
         self.sidebar.setStyleSheet("""
             QPushButton {
-                background-color:rgb(57, 57, 57);
                 border: 0px;
                 min-width: 115px;
                 min-height: 60px;
@@ -68,14 +82,9 @@ class SettingsWindow(QWidget):
         self.sidebar_label = QLabel("Settings")
         self.sidebar_label.setAlignment(Qt.AlignCenter)
         self.sidebar_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.sidebar_label.setStyleSheet("""
-            QLabel {
-                font-size:18pt;
-            }
-        """)
+        self.sidebar_label.setStyleSheet("font-size:18pt;")
 
-        self.sidebar_spacer = QWidget()
-        self.sidebar_spacer.setMinimumHeight(20)
+        self.sidebar_spacer = QSpacerItem(5, 20)
 
         self.general_button = QPushButton("General")
         self.general_button.setCheckable(True)
@@ -112,8 +121,11 @@ class SettingsWindow(QWidget):
         # Bottom buttons
 
         self.apply_button = QPushButton("Apply")
+        self.apply_button.clicked.connect(self.update_settings)
         self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.cancel_func)
         self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.ok_func)
 
         """
         Building Layout
@@ -123,7 +135,7 @@ class SettingsWindow(QWidget):
         self.sidebar_layout.setContentsMargins(0, 0, 0, 0)
         self.sidebar_layout.setSpacing(0)
         self.sidebar_layout.addWidget(self.sidebar_label)
-        self.sidebar_layout.addWidget(self.sidebar_spacer)
+        self.sidebar_layout.addItem(self.sidebar_spacer)
         self.sidebar_layout.addWidget(self.general_button)
         self.sidebar_layout.addWidget(self.anki_button)
         self.sidebar_layout.addWidget(self.audio_button)
@@ -158,4 +170,15 @@ class SettingsWindow(QWidget):
         # self.central_widget.setLayout(self.window_layout)
         self.setLayout(self.window_layout)
 
+    def update_settings(self):
+        self.anki_page.update_settings()
+        self.general_page.update_settings()
+        self.audio_page.update_settings()
+        self.image_page.update_settings()
 
+    def ok_func(self):
+        self.update_settings()
+        self.close()
+
+    def cancel_func(self):
+        self.close()
