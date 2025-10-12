@@ -272,6 +272,7 @@ class MainWindow(QMainWindow):
         self.listwidget.setFont(self.list_font)
         self.listwidget.setSpacing(10)
         self.listwidget.setWordWrap(True)
+        self.listwidget.setMinimumHeight(1)
         self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
@@ -361,18 +362,20 @@ class MainWindow(QMainWindow):
         self.middle_row.addWidget(self.show_lines_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
         self.middle_row.addWidget(self.settings_button, alignment=Qt.AlignRight)
 
-        self.bottom_half = QVBoxLayout()
-        self.bottom_half.setSpacing(0)
-        self.bottom_half.setContentsMargins(0, 0, 0, 0)
-        self.bottom_half.addLayout(self.middle_row)
-        self.bottom_half.addWidget(self.listwidget)
+        # self.bottom_half = QVBoxLayout()
+        # self.bottom_half.setSpacing(0)
+        # self.bottom_half.setContentsMargins(0, 0, 0, 0)
+        # self.bottom_half.addLayout(self.middle_row)
+        # self.bottom_half.addWidget(self.listwidget)
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 10, 0, 0)
         self.main_layout.setSpacing(0)
         self.main_layout.setAlignment(Qt.AlignTop)
         self.main_layout.addLayout(self.top_row)
-        self.main_layout.addLayout(self.bottom_half)
+        # self.main_layout.addLayout(self.bottom_half)
+        self.main_layout.addLayout(self.middle_row)
+        self.main_layout.addWidget(self.listwidget)
 
         status_style = """
             QCheckBox::indicator:!enabled{
