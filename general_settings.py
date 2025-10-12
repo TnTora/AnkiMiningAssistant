@@ -117,6 +117,7 @@ class GeneralPage(QWidget):
         self.urls_form = QFormLayout()
         self.urls_form.setContentsMargins(0, 0, 9, 0)
         self.urls_form.setVerticalSpacing(10)
+        self.urls_form.setHorizontalSpacing(5)
         self.urls_form.setLabelAlignment(Qt.AlignRight)
         self.urls_form.setFormAlignment(Qt.AlignRight)
         for url in self.listen_urls:
@@ -135,6 +136,7 @@ class GeneralPage(QWidget):
         self.setLayout(self.main_layout)
 
     def add_listen_url(self):
+        # TODO: Validate input
         new_url = self.new_url_edit.text()
         if not new_url:
             return

@@ -57,17 +57,17 @@ class AnkiPage(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #8f8f91;
-                border-radius: 6px;
-                background-color: gray;
-            }
+        # self.setStyleSheet("""
+        #     QToolButton {
+        #         border: 1px solid #8f8f91;
+        #         border-radius: 6px;
+        #         background-color: gray;
+        #     }
 
-            QToolButton:pressed {
-                background-color: #999999;
-            }
-        """)
+        #     QToolButton:pressed {
+        #         background-color: #999999;
+        #     }
+        # """)
 
         self.anki_port_label = QLabel("AnkiConnect PORT")
         self.anki_port_label.setStyleSheet(self.label_style)
@@ -214,6 +214,7 @@ class AnkiPage(QWidget):
         self.notes_form = QFormLayout()
         self.notes_form.setContentsMargins(0, 0, 9, 0)
         self.notes_form.setVerticalSpacing(10)
+        self.notes_form.setHorizontalSpacing(5)
         self.notes_form.setLabelAlignment(Qt.AlignRight)
         self.notes_form.setFormAlignment(Qt.AlignRight)
         for note in self.note_types:

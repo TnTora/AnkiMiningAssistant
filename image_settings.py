@@ -69,7 +69,7 @@ class ImagePage(QWidget):
         self.max_resolution_info.setStyleSheet(self.info_style)
 
         self.max_resolution_combo = QComboBox()
-        self.max_resolution_combo.addItems(["1080p", "720p", "480p", "360p"])
+        self.max_resolution_combo.addItems(["1080p", "720p", "480p", "360p", "Native"])
         self.max_resolution_combo.setCurrentText(settings.image.max_resolution)
         # self.inactivity_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 

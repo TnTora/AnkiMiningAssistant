@@ -2,6 +2,7 @@
 from PySide6.QtCore import (
     Qt,
 )
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QGroupBox,
     QSpacerItem,
@@ -27,17 +28,17 @@ class SettingsWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #8f8f91;
-                border-radius: 6px;
-                background-color: gray;
-            }
+        # self.setStyleSheet("""
+        #     QToolButton {
+        #         border: 1px solid #8f8f91;
+        #         border-radius: 6px;
+        #         background-color: gray;
+        #     }
 
-            QToolButton:pressed {
-                background-color: #999999;
-            }
-        """)
+        #     QToolButton:pressed {
+        #         background-color: #999999;
+        #     }
+        # """)
 
         self.setWindowTitle("Settings")
         self.setMinimumWidth(660)
@@ -61,21 +62,23 @@ class SettingsWindow(QWidget):
         self.stacked_widget.addWidget(self.image_page)
         # background-color:rgb(57, 57, 57);
         self.sidebar = QGroupBox()
-        self.sidebar.setStyleSheet("""
-            QPushButton {
+        # rgb(91, 91, 91)
+        self.sidebar.setStyleSheet(f"""
+            QPushButton {{
                 border: 0px;
                 min-width: 115px;
                 min-height: 60px;
-            }
+            }}
 
-            QPushButton:hover {
-                background-color:rgb(91, 91, 91);
-            }
+            QPushButton:hover {{
+                background-color:{self.palette().color(QPalette.ColorRole.AlternateBase).name()};
+            }}
 
-            QPushButton:checked {
-                background-color:rgb(91, 91, 91);
-            }
+            QPushButton:checked {{
+                background-color:{self.palette().color(QPalette.ColorRole.AlternateBase).name()};
+            }}
         """)
+
         self.sidebar.setMinimumWidth(115)
         self.sidebar.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
 

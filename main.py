@@ -3,8 +3,13 @@ import soundcard as sc
 # import numpy as np
 from datetime import datetime
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import (
+    QFont,
+    QIcon,
+    # QPalette,
+)
 from PySide6.QtCore import (
+    QSize,
     Qt,
     QRunnable,
     QThreadPool,
@@ -34,6 +39,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
 )
 
+from util import anki
 from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 from util.database import (
     settings,
@@ -80,26 +86,32 @@ class ConfirmationDialog(QDialog):
 
 
 class PlayerState:
-    total_intervals = 0
-    cursor = 0
-    playing = False
+
+    def __init__(self):
+        self.total_intervals = 0
+        self.cursor = 0
+        self.playing = False
 
 
 class Player_Worker(QRunnable):
     """Worker thread."""
 
+    def __init__(self, player_state: PlayerState):
+        super().__init__()
+        self.player_state = player_state
+
     def run(self):
 
-        if PlayerState.cursor == PlayerState.total_intervals:
-            PlayerState.cursor = 0
+        if self.player_state.cursor == self.player_state.total_intervals:
+            self.player_state.cursor = 0
 
         with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=83) as sp:
-            for interval in audio.buffer.slice_(start_idx=PlayerState.cursor):
-                if not PlayerState.playing:
-                    PlayerState.playing = False
+            for interval in audio.buffer.slice_(start_idx=self.player_state.cursor):
+                if not self.player_state.playing:
+                    self.player_state.playing = False
                     break
                 sp.play(interval.data)
-                PlayerState.cursor += 1
+                self.player_state.cursor += 1
 
 
 class MainWindow(QMainWindow):
@@ -111,6 +123,7 @@ class MainWindow(QMainWindow):
         self.apps = getAllApps()
         self.windows = None
         self.mikes, preferred_idx = audio.get_mics()
+        self.player_state = PlayerState()
 
         self.audio_data = []
         self.audio_info = []
@@ -119,6 +132,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AnkiMiningAssistant")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
+
+        # self.setStyleSheet(f"""
+        #     QToolButton {{
+        #         border: 1px solid #555555;
+        #         border-radius: 6px;
+        #         background-color: {self.palette().color(QPalette.ColorRole.Base).name()};
+        #     }}
+
+        #     QToolButton:pressed {{
+        #         background-color: {self.palette().color(QPalette.ColorRole.Light).name()};
+        #     }}
+        # """)
 
         """
         Creating Widgets
@@ -137,7 +162,15 @@ class MainWindow(QMainWindow):
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
         self.session_select.currentTextChanged.connect(self.set_session)
 
+        self.del_session_button = QPushButton("-")
+        self.del_session_button.setMinimumWidth(21)
+        self.del_session_button.setMaximumWidth(21)
+        self.del_session_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.del_session_button.released.connect(self.del_session)
+
         self.new_session_button = QPushButton("+")
+        self.new_session_button.setMinimumWidth(21)
+        self.new_session_button.setMaximumWidth(21)
         self.new_session_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.new_session_button.released.connect(self.add_session)
 
@@ -154,11 +187,6 @@ class MainWindow(QMainWindow):
         self.window_select = QComboBox()
         self.window_select.currentIndexChanged.connect(self.set_window)
 
-        # Set session after creating app and window widgets since they are
-        # used in set_session
-        if settings.general.last_session:
-            self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
-
         self.mic_sel_label = QLabel("Mic: ")
 
         self.mic_select = QComboBox()
@@ -172,19 +200,32 @@ class MainWindow(QMainWindow):
         if settings.audio.continuous_recording:
             self.continuous_recording.setCheckState(Qt.CheckState.Checked)
 
-        self.continuous_recording.checkStateChanged.connect(self.set_continuous_recording)
+        self.continuous_recording.checkStateChanged.connect(
+            lambda state: self.set_check_setting(state, "continuous_recording")
+        )
 
         # self.rec_screen_button = QPushButton("Screenshot")
         self.rec_screen_button = QToolButton()
-        self.rec_screen_button.setMinimumWidth(50)
-        self.rec_screen_button.setMinimumHeight(50)
-        self.rec_screen_button.released.connect(ut.recordHotKeyScreenshot)
+        self.rec_screen_button.setIcon(QIcon("picture-1.png"))
+        self.rec_screen_button.setIconSize(QSize(25, 25))
+        self.rec_screen_button.setMinimumWidth(40)
+        self.rec_screen_button.setMinimumHeight(40)
+        # self.rec_screen_button.released.connect()
 
         # self.rec_audio_button = QPushButton("Audio")
         self.rec_audio_button = QToolButton()
-        self.rec_audio_button.setMinimumWidth(50)
-        self.rec_audio_button.setMinimumHeight(50)
-        self.rec_audio_button.released.connect(self.getAudio)
+        self.rec_audio_button.setIcon(QIcon("voice-recording-1.png"))
+        self.rec_audio_button.setIconSize(QSize(25, 25))
+        self.rec_audio_button.setMinimumWidth(40)
+        self.rec_audio_button.setMinimumHeight(40)
+        # self.rec_audio_button.released.connect()
+
+        self.rec_both_button = QToolButton()
+        self.rec_both_button.setIcon(QIcon("audio-pic-1.png"))
+        self.rec_both_button.setIconSize(QSize(30, 30))
+        self.rec_both_button.setMinimumWidth(40)
+        self.rec_both_button.setMinimumHeight(40)
+        # self.rec_both_button.released.connect()
 
         self.anki_font = QFont()
         self.anki_font.setPointSize(18)
@@ -198,7 +239,15 @@ class MainWindow(QMainWindow):
         self.anki_sentence.setFont(self.sentence_font)
 
         self.auto_update_check = QCheckBox("Auto Update")
+
+        self.auto_update_check.checkStateChanged.connect(
+            lambda state: self.set_check_setting(state, "auto_update")
+        )
         self.open_in_browser_check = QCheckBox("Open in Browser")
+
+        self.open_in_browser_check.checkStateChanged.connect(
+            lambda state: self.set_check_setting(state, "open_in_browser")
+        )
 
         self.audio_slider = QSlider()
         self.audio_slider.setMinimum(0)
@@ -206,6 +255,7 @@ class MainWindow(QMainWindow):
         self.audio_slider.setValue(0)
         self.audio_slider.setSingleStep(1)
         self.audio_slider.setOrientation(Qt.Horizontal)
+        self.audio_slider.sliderPressed.connect(self.slider_pressed)
         self.audio_slider.sliderReleased.connect(self.slider_released)
 
         self.play_button = QPushButton("Play")
@@ -224,7 +274,7 @@ class MainWindow(QMainWindow):
         self.listwidget.setWordWrap(True)
         self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.listwidget.itemSelectionChanged.connect(self.changedSelection)
+        # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
 
         if not self.lines_shown:
             self.show_lines_label.setText("> Show Lines")
@@ -242,7 +292,9 @@ class MainWindow(QMainWindow):
 
         self.session_combo_layout = QHBoxLayout()
         self.session_combo_layout.addWidget(self.session_select)
+        self.session_combo_layout.addWidget(self.del_session_button)
         self.session_combo_layout.addWidget(self.new_session_button)
+        self.session_combo_layout.setStretch(0, 1)
 
         self.session_box_layout.addLayout(self.session_combo_layout)
         self.session_box_layout.addWidget(self.app_sel_label)
@@ -259,10 +311,10 @@ class MainWindow(QMainWindow):
         self.session_out_layout.addWidget(self.session_box)
 
         self.button_layout = QVBoxLayout()
-        self.button_layout.setContentsMargins(0, 0, 10, 0)
+        self.button_layout.setContentsMargins(0, 5, 10, 0)
         self.button_layout.addWidget(self.rec_screen_button)
         self.button_layout.addWidget(self.rec_audio_button)
-        # self.button_layout.addWidget(self.rec_both_button)
+        self.button_layout.addWidget(self.rec_both_button)
 
         self.anki_info_grid = QGridLayout()
         self.anki_info_grid.setColumnStretch(1, 1)
@@ -322,11 +374,66 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(self.top_row)
         self.main_layout.addLayout(self.bottom_half)
 
+        status_style = """
+            QCheckBox::indicator:!enabled{
+                background-color: #e50000;
+                border: 1px solid #e50000;
+                border-radius: 5px;
+                width: 9px;
+                height: 9px;
+                margin-right:10px;
+            }
+            QCheckBox::indicator:checked:!enabled{
+                background-color: #27b700;
+                border: 1px solid #27b700;
+            }
+            QCheckBox::indicator:indeterminate:!enabled{
+                background-color: #e28204;
+                border: 1px solid #e28204;
+            }
+            QCheckBox:!enabled{
+                color: #cccccc;
+            }
+        """
+
         self.status_bar = QStatusBar()
+        self.status_bar.setStyleSheet(status_style)
         self.setStatusBar(self.status_bar)
 
-        self.status_bar.addPermanentWidget(QLabel("Anki: ON"))
-        self.status_bar.addPermanentWidget(QLabel("WS: ON"))
+        self.anki_status = QCheckBox("Anki: ")
+        self.anki_status.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.anki_status.setTristate(True)
+        self.anki_status.setEnabled(False)
+        self.anki_status.setCheckState(Qt.CheckState.Unchecked)
+        # self.anki_status.setStyleSheet(status_style)
+
+        self.ws_status = QCheckBox("WS: ")
+        self.ws_status.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.ws_status.setTristate(True)
+        self.ws_status.setEnabled(False)
+        self.ws_status.setCheckState(Qt.CheckState.Unchecked)
+        # self.ws_status.setStyleSheet(status_style)
+
+        self.listeners_status = {}
+        for url in settings.general.listen_urls:
+            if not self.listeners_status:
+                tmp_status = QCheckBox("Listening: ")
+            else:
+                tmp_status = QCheckBox()
+            tmp_status.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+            tmp_status.setTristate(True)
+            tmp_status.setEnabled(False)
+            tmp_status.setToolTip(url)
+            tmp_status.setCheckState(Qt.CheckState.Unchecked)
+
+            self.listeners_status[url] = tmp_status
+
+        self.status_bar.addPermanentWidget(self.anki_status)
+        self.status_bar.addPermanentWidget(self.ws_status)
+
+        # self.status_bar.addPermanentWidget(QLabel("Listeners: "))
+        for listener in self.listeners_status.values():
+            self.status_bar.addPermanentWidget(listener)
 
         widget = QWidget()
         widget.setLayout(self.main_layout)
@@ -336,15 +443,39 @@ class MainWindow(QMainWindow):
         Extra setup
         """
 
+        # Set session after creating othr widgets since they are
+        # used in set_session
+        if settings.general.last_session in sessionsdb.sessions_dict:
+            self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
+
         ut.signals.confirm.connect(self.openConfirmationDialog)
 
+        self.state_dict = {
+            0: Qt.CheckState.Unchecked,
+            1: Qt.CheckState.PartiallyChecked,
+            2: Qt.CheckState.Checked,
+        }
+
+        util.sockets.socket_signals.ws_state.connect(
+            lambda state: self.ws_status.setCheckState(self.state_dict[state])
+        )
+
+        util.sockets.socket_signals.listener_state.connect(self.update_listener_status)
+
+        anki.anki_signals.anki_status.connect(
+            lambda state: self.anki_status.setCheckState(self.state_dict[state])
+        )
+
         self.threadpool = QThreadPool()
-        self.player = Player_Worker()
+        self.player = Player_Worker(self.player_state)
         # self.player.setAutoDelete(False)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.updateSlider)
         self.timer.start(500)
+
+        util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
+        util.sockets.ws_server.start()
 
         start_monitoring_anki(self.update_anki_note_info)
 
@@ -354,6 +485,13 @@ class MainWindow(QMainWindow):
         #     self.settings_window = None
         self.settings_window = SettingsWindow()
         self.settings_window.show()
+
+    def update_listener_status(self, url, state):
+        if url == "all":
+            for listener in self.listeners_status.values():
+                listener.setCheckState(self.state_dict[state])
+            return
+        self.listeners_status[url].setCheckState(self.state_dict[state])
 
     def update_anki_note_info(self, expression, sentence):
         # self.last_note_info.setText(info)
@@ -365,15 +503,23 @@ class MainWindow(QMainWindow):
         sessionsdb.sessions_dict[new_session_name] = {
             "AppName": "",
             "WindowTitle": "",
+            "continuous_recording": settings.audio.continuous_recording,
+            "auto_update": settings.anki.auto_update_last_note,
+            "open_in_browser": settings.anki.open_note_in_gui,
         }
         self.session_select.clear()
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
         self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), new_session_name))
 
+    def del_session(self):
+        sessionsdb.sessions_dict.pop(self.session_select.currentText())
+        self.session_select.clear()
+        self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
+
     def updateSlider(self):
         value = 0
-        if PlayerState.cursor > 0:
-            value = int(PlayerState.cursor/PlayerState.total_intervals*10000)
+        if self.player_state.total_intervals > 0:
+            value = int(self.player_state.cursor/self.player_state.total_intervals*10000)
         self.audio_slider.setValue(value)
 
     def refresh_app_list(self):
@@ -384,10 +530,14 @@ class MainWindow(QMainWindow):
     def set_session(self, key):
         if not key:
             return
-        print(f"session: {sessionsdb.sessions_dict[key]}")
+        # print(f"session: {sessionsdb.sessions_dict[key]}")
         settings.general.last_session = key
+        sessionsdb.current_session = sessionsdb.sessions_dict[key]
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
+        self.continuous_recording.setChecked(sessionsdb.sessions_dict[key]["continuous_recording"])
+        self.auto_update_check.setChecked(sessionsdb.sessions_dict[key]["auto_update"])
+        self.open_in_browser_check.setChecked(sessionsdb.sessions_dict[key]["open_in_browser"])
         self.window_select.setCurrentIndex(-1)
         try:
             self.apps = getAllApps()
@@ -418,7 +568,7 @@ class MainWindow(QMainWindow):
     def set_app(self, index):
         if index < 0:
             return
-        print(f"self.apps[index]: {self.apps[index]}")
+        # print(f"self.apps[index]: {self.apps[index]}")
         sessionsdb.sessions_dict[settings.general.last_session]["AppName"] = self.apps[index].localizedName()
         # ut.app = self.apps[index]
         # ut.proc = getAS_Process(ut.se, ut.app)
@@ -427,9 +577,8 @@ class MainWindow(QMainWindow):
         self.window_select.addItems([w["kCGWindowName"] for w in self.windows])
 
     def set_window(self, index):
-
         try:
-            print(f"self.windows[index]: {self.windows[index]}")
+            # print(f"self.windows[index]: {self.windows[index]}")
             screenshot.win = self.windows[index]
             sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index]["kCGWindowName"]
             # selected_win_AX = getAXWindowFromWindowInfo(getAppAXWindows(self.apps[self.app_select.currentIndex()]), self.windows[index])
@@ -445,13 +594,13 @@ class MainWindow(QMainWindow):
         if audio.buffer is None or audio.buffer.channels != audio.mic.channels:
             audio.buffer = audio.AudioBuffer(channels=audio.mic.channels, is_primary=True)
             audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
+            self.player_state.total_intervals = len(audio.buffer)
 
-    def set_continuous_recording(self, state):
-        print(f"state: {state}")
-        if state:
-            settings.audio.continuous_recording = True
+    def set_check_setting(self, state, setting):
+        if state == Qt.CheckState.Checked:
+            sessionsdb.sessions_dict[settings.general.last_session][setting] = True
         else:
-            settings.audio.continuous_recording = False
+            sessionsdb.sessions_dict[settings.general.last_session][setting] = False
 
     def audioMonitor(self):
         if not self.av_monitoring:
@@ -492,37 +641,36 @@ class MainWindow(QMainWindow):
         ut.condition.set()
 
     def playAudio(self):
-        if PlayerState.playing:
+        if self.player_state.playing:
             self.play_button.setText("Play")
-            PlayerState.playing = False
+            self.player_state.playing = False
             # audio.PLAYBACK = False
         else:
             self.play_button.setText("Pause")
-            PlayerState.total_intervals = len(audio.buffer)
-            # PlayerState.cursor = 0
-            PlayerState.playing = True
-            self.player = Player_Worker()
+            self.player_state.total_intervals = len(audio.buffer)
+            # self.player_state.cursor = 0
+            self.player_state.playing = True
+            self.player = Player_Worker(self.player_state)
             # audio.PLAYBACK = True
             self.threadpool.start(self.player)
 
+    def slider_pressed(self):
+        self.timer.stop()
+
     def slider_released(self):
-        if not PlayerState.playing:
-            PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
+        if not self.player_state.playing:
+            self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
         else:
-            PlayerState.playing = False
+            self.player_state.playing = False
             self.play_button.setText("Play")
-            PlayerState.cursor = int((self.audio_slider.value()/10000)*PlayerState.total_intervals)
-            # PlayerState.playing = True
-            # self.player = Player_Worker()
+            self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
+            # self.player_state.playing = True
+            # self.player = Player_Worker(self.player_state)
             # self.threadpool.start(self.player)
+        self.timer.start()
 
     def changedSelection(self):
-        self.player._data = None
-        self.player.frames = None
-        self.player._dataT = None
-        self.player.cursor = 0
-        self.player.playing = False
-        audio.PLAYBACK = False
+        pass
 
     def toggle_lines(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -553,9 +701,8 @@ def main():
     createAggregateDevice()
     # ut.hotkeys.start()
     # ut.hotkeys.wait()
-    util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
-    util.sockets.ws_server.start()
     app = QApplication(sys.argv)
+    # app.setStyle("Fusion")
     window = MainWindow()
     window.show()
     if sys.platform == "darwin":

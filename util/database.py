@@ -330,12 +330,16 @@ class SessionDB:
     def __init__(self, path) -> None:
         self.path = path
         self.sessions_dict = {}
+        self.current_session = None
         self.create_table()
         self.load_sessions()
         if "Manual" not in self.sessions_dict:
             self.sessions_dict["Manual"] = {
                 "AppName": "",
                 "WindowTitle": "",
+                "continuous_recording": True,
+                "auto_update": False,
+                "open_in_browser": True
             }
 
     def create_table(self):
@@ -345,7 +349,11 @@ class SessionDB:
                     CREATE TABLE IF NOT EXISTS sessions (
                             name            TEXT PRIMARY KEY,
                             AppName         TEXT,
-                            WindowTitle     TEXT
+                            WindowTitle     TEXT,
+                            continuous_recording BOOLEAN,
+                            auto_update     BOOLEAN,
+                            open_in_browser BOOLEAN
+
                 );""")
 
     def store_sessions(self):
@@ -354,16 +362,22 @@ class SessionDB:
                 conn.execute("DELETE FROM sessions;")
                 for name in self.sessions_dict:
                     conn.execute("""
-                        INSERT INTO sessions (name, AppName, WindowTitle)
-                        VALUES (?, ?, ?);
-                    """, (name, self.sessions_dict[name]["AppName"], self.sessions_dict[name]["WindowTitle"]))
+                        INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser)
+                        VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser);
+                    """, {"name": name} | self.sessions_dict[name])
 
     def load_sessions(self):
         # sessions_dict = {}
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for name, a_name, w_title in conn.execute("SELECT name, AppName, WindowTitle FROM sessions"):
-                    self.sessions_dict[name] = {"AppName": a_name, "WindowTitle": w_title}
+                for name, a_name, w_title, c_rec, a_up, open_gui in conn.execute("SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser FROM sessions"):
+                    self.sessions_dict[name] = {
+                        "AppName": a_name,
+                        "WindowTitle": w_title,
+                        "continuous_recording": c_rec,
+                        "auto_update": a_up,
+                        "open_in_browser": open_gui,
+                    }
         # return self.sessions_dict
 
 

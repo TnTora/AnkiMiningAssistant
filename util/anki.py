@@ -2,17 +2,20 @@ import os
 import re
 import json
 import urllib.request
+import urllib.error
 import threading
 from time import sleep
 from datetime import datetime
 from copy import copy
 import traceback
 
+from PySide6.QtCore import QObject, Signal
+
 import util.sockets
 # import util.util as util
 import util.audio as audio
 import util.screenshot as screenshot
-from util.database import AnkiSettings, settings
+from util.database import AnkiSettings, settings, sessionsdb
 
 # anki_port = 8765
 previous_notes = set()
@@ -34,6 +37,13 @@ last_note_sentence_clean = None
 start_session = datetime.now()
 
 
+class AnkiSignals(QObject):
+    anki_status = Signal(int)
+
+
+anki_signals = AnkiSignals()
+
+
 def request(action, **params):
     return {'action': action, 'params': params, 'version': 6}
 
@@ -52,6 +62,7 @@ def invoke(action, **params):
             raise Exception(response['error'])
         return response['result']
     except Exception:
+        # traceback.print_exc()
         return
 
 
@@ -88,10 +99,10 @@ def get_last_note():
 def get_note_info(note):
     results = invoke("notesInfo", notes=[note])
     note_type = results[0]["modelName"]
-    print(note_type)
+
     if note_type not in AnkiSettings.note_types:
         return
-    # infos = {field: results[0]["fields"][field]["value"] for field in card_fields.values()}
+
     infos = {
         "noteType": note_type,
         "Expression": results[0]["fields"][AnkiSettings.expression[note_type]]["value"],
@@ -107,7 +118,7 @@ def update_note(note_id, fields, tags=""):
     invoke("updateNoteFields", note={"id": note_id, "fields": fields})
     if tags:
         invoke("addTags", notes=[note_id], tags=tags)
-    if AnkiSettings.open_note_in_gui:
+    if sessionsdb.current_session["open_in_browser"]:
         invoke("guiBrowse", query=f"nid:{note_id}")
 
 
@@ -124,7 +135,7 @@ def auto_update_note():
 
     text_copy = copy(util.sockets.text_stored)
 
-    print(f"last_note_sentence_clean: {last_note_sentence_clean}")
+    # print(f"last_note_sentence_clean: {last_note_sentence_clean}")
 
     for line in text_copy:
 
@@ -134,11 +145,11 @@ def auto_update_note():
             found_lines[-1]["next"] = line
             found = False
 
-        print(f"line.text: {line.text}")
+        # print(f"line.text: {line.text}")
 
         substring_idx = line.text.find(last_note_sentence_clean)
 
-        print(f"substring_idx: {substring_idx}")
+        # print(f"substring_idx: {substring_idx}")
 
         if substring_idx == -1:
             continue
@@ -210,19 +221,25 @@ def monitor_last_note(widget_info_update=None):
     while True:
         try:
             last_note_tmp = get_last_note()
+
             if last_note_tmp not in previous_notes:
+
                 last_note = last_note_tmp
                 last_note_update_time = datetime.now()
                 last_note_info = get_note_info(last_note)
+
                 if last_note_info is None:
                     continue
+
                 last_note_sentence_clean = cleanhtml(last_note_info["Sentence"])
                 previous_notes.add(last_note_tmp)
+
                 if widget_info_update:
                     widget_info_update(last_note_info["Expression"], last_note_sentence_clean)
-                print(f"last_note: {last_note}, start_session.timestamp(): {start_session.timestamp()*1000}")
-                if AnkiSettings.auto_update_last_note and last_note > start_session.timestamp()*1000:
+
+                if sessionsdb.current_session["auto_update"] and last_note > start_session.timestamp()*1000:
                     auto_update_note()
+
         except Exception as e:
             if "No note added today" in str(e):
                 if last_note != -1:
@@ -235,6 +252,22 @@ def monitor_last_note(widget_info_update=None):
             sleep(0.2)
 
 
+def check_anki_status():
+    while True:
+        try:
+            requestJson = json.dumps(request("version")).encode('utf-8')
+            urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{AnkiSettings.port}', requestJson))
+        except Exception:
+            # TODO: Specify errors
+            anki_signals.anki_status.emit(1)
+        else:
+            anki_signals.anki_status.emit(2)
+        finally:
+            sleep(1)
+
+
 def start_monitoring_anki(widget_info_update=None):
     anki_thread = threading.Thread(target=monitor_last_note, args=[widget_info_update], daemon=True)
     anki_thread.start()
+    status_thread = threading.Thread(target=check_anki_status, daemon=True)
+    status_thread.start()

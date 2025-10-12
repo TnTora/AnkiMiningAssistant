@@ -21,7 +21,7 @@ mic = None
 buffer = None
 secondary_buffer = None
 record_audio_buffer = None
-PLAYBACK = False
+# PLAYBACK = False
 
 model = load_silero_vad()
 resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
@@ -109,6 +109,8 @@ class AudioBuffer:
 
     @classmethod
     def pause(cls):
+        if cls.inactive:
+            return
         cls.inactive = True
         screenshot.ImageTempStorage.inactive = True
         offset = timedelta(seconds=0)
@@ -134,7 +136,7 @@ class AudioBuffer:
         offset = timedelta(seconds=offset)
         cls.inactive = False
         screenshot.ImageTempStorage.inactive = False
-        if cls.inactive_intervals:
+        if cls.inactive_intervals and cls.inactive_intervals[-1].end_time is None:
             cls.inactive_intervals[-1].end_time = datetime.now() - offset
 
     @classmethod
@@ -196,7 +198,7 @@ class AudioBuffer:
 
         padding = 10
         line_start = max(line_start - padding, 0)
-        line_end = last_active_interval + padding
+        line_end = min(last_active_interval + padding, line_end)
 
         if save_on_disk:
             save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"

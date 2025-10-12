@@ -6,11 +6,26 @@ from datetime import datetime
 from collections import deque
 # import traceback
 
+from PySide6.QtCore import Signal, QObject
+
 from util.screenshot import _take_screenshot
 from util.database import GeneralSettings, linedb
 import util.audio as audio
 
 ws_server = None
+
+
+class SocketsSignals(QObject):
+    """
+    State: 0 - stoppede,
+           1 - started but not connected,
+           2 - connected
+    """
+    ws_state = Signal(int)
+    listener_state = Signal(str, int)
+
+
+socket_signals = SocketsSignals()
 
 
 class LineStored:
@@ -83,6 +98,8 @@ class WebsocketManagerThread(threading.Thread):
     def stop_server(self):
         for task in self.tasks:
             task.cancel()
+        socket_signals.ws_state.emit(0)
+        socket_signals.listener_state.emit("all", 0)
 
     async def send_to_texthooker(self):
         while True:
@@ -98,6 +115,7 @@ class WebsocketManagerThread(threading.Thread):
 
     async def msg_handler(self, websocket):
         self.clients.add(websocket)
+        socket_signals.ws_state.emit(2)
         try:
             if self.unsent_text:
                 for message in self.unsent_text:
@@ -110,6 +128,7 @@ class WebsocketManagerThread(threading.Thread):
             pass
         finally:
             self.clients.remove(websocket)
+            socket_signals.ws_state.emit(1)
 
     def run(self):
         async def start_server():
@@ -118,9 +137,13 @@ class WebsocketManagerThread(threading.Thread):
                     async with websockets.serve(self.msg_handler,
                                                 "0.0.0.0",
                                                 self.ws_port):
+                        socket_signals.ws_state.emit(1)
                         self.main_task = asyncio.create_task(self.send_to_texthooker())
                         await self.main_task
+                except asyncio.CancelledError:
+                    pass
                 except Exception as e:
+                    socket_signals.ws_state.emit(0)
                     print(e)
                     await asyncio.sleep(1)
 
@@ -130,20 +153,26 @@ class WebsocketManagerThread(threading.Thread):
             # self._loop.set_debug(True)
             text_received = asyncio.Queue()
             self._event.set()
-            self.tasks = [asyncio.create_task(self.add_listener(url)) for url in self.listen_urls]
+            self.tasks = [asyncio.create_task(self.new_listener(url)) for url in self.listen_urls]
             self.tasks.append(asyncio.create_task(start_server()))
             await asyncio.gather(*self.tasks, return_exceptions=True)
 
         asyncio.run(main())
 
     async def add_listener(self, url):
+        task = asyncio.create_task(self.new_listener(url))
+        self.tasks.append(task)
+
+    async def new_listener(self, url):
         is_Luna = False
+        socket_signals.listener_state.emit(url, 1)
         while True:
             try:
                 ws_url = f'ws://{url}'
                 if is_Luna:
                     ws_url = f'ws://{url}/api/ws/text/origin'
                 async with websockets.connect(ws_url, ping_interval=None) as websocket:
+                    socket_signals.listener_state.emit(url, 2)
                     while True:
                         msg = await websocket.recv()
                         if not msg:
@@ -164,6 +193,11 @@ class WebsocketManagerThread(threading.Thread):
                                     audio.record_audio_buffer.resume_recording()
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
+            except asyncio.CancelledError:
+                pass
             except Exception:
+                # print(e)
+                socket_signals.listener_state.emit(url, 1)
+                is_Luna = not is_Luna
                 # traceback.print_exc()
                 await asyncio.sleep(1)

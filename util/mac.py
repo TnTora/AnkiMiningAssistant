@@ -37,7 +37,6 @@ except objc.error as e:
     usePrivateAPI = False
     print(e)
 
-
 # app_info = NSBundle.mainBundle().infoDictionary()
 # app_info["LSBackgroundOnly"] = "1"  # suppress python macOS dock icon pop up/bounce but windows cannot be focused
 
@@ -132,9 +131,7 @@ def getAXWindowFromWindowInfo(AXWindowsList, win):
 def activateWindow(app, proc, win_ax):
     app.activateWithOptions_(Quartz.NSApplicationActivateIgnoringOtherApps)
     ApplicationServices.AXUIElementPerformAction(win_ax, ApplicationServices.kAXRaiseAction)
-    # print(f"isCurrentlyActive: {isCurrentlyActive(app)}")
     sleep(0.1)
-    # print(f"isCurrentlyActive: {isCurrentlyActive(app)}")
     if not isCurrentlyActive(app):
         proc.setFrontmost_(True)
 
@@ -154,6 +151,13 @@ def getAS_Process(se, app):
     return processes.filteredArrayUsingPredicate_(pred)[0]
 
 
+resolutions = {
+    "1080p": 1920*1080,
+    "720p": 1280*720,
+    "480p": 854*480,
+    "360p": 640*360,
+}
+
 try:
     from ScreenCaptureKit import (
         SCContentFilter,
@@ -163,7 +167,7 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP"):
+    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP", max_resolution: str = "1080p"):
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -184,11 +188,12 @@ try:
                 content_filter = SCContentFilter(display=capture_target, excludingWindows=[])
                 # print(content_filter)
 
+            # adjust for high DPI
             width = capture_target.frame().size.width*content_filter.pointPixelScale()
             height = capture_target.frame().size.height*content_filter.pointPixelScale()
 
-            resolution_limit = 1920*1080
-            if resolution_limit:
+            if max_resolution in resolutions:
+                resolution_limit = resolutions[max_resolution]
                 aspect_ratio = width/height
                 height = sqrt(resolution_limit/aspect_ratio)
                 width = aspect_ratio * height
@@ -242,4 +247,5 @@ try:
         return container
 
 except ImportError:
+    # TODO: Take screenshot using PIL
     pass
