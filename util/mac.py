@@ -228,7 +228,7 @@ try:
             print(f"image size: {len(data)}")
             file_data = BytesIO(data)
             with Image.open(file_data) as img:
-                img.save(container, format=format, quality=80)
+                img.save(container, format=format)
             # img = Image.open(file_data)
             # img.save(buffered, format="WebP")
             # img.save(save_path_tmp)

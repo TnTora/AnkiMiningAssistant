@@ -5,6 +5,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -88,9 +89,17 @@ class AnkiPage(QWidget):
         self.media_line_edit = QLineEdit()
         self.media_line_edit.setMinimumWidth(200)
         self.media_line_edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+
+        self.media_select = QFileDialog()
+        self.media_select.setFileMode(QFileDialog.FileMode.Directory)
+        if settings.anki.media_dir is not None:
+            self.media_select.setDirectory(settings.anki.media_dir)
+        self.media_select.fileSelected.connect(self.update_dir)
+
         self.media_button = QToolButton()
         self.media_button.setMinimumSize(QSize(23, 22))
         self.media_button.setText("...")
+        self.media_button.clicked.connect(self.media_select.open)
         AnkiPage.settings_widgets["media_dir"] = self.media_line_edit
 
         if settings.anki.media_dir:
@@ -391,6 +400,12 @@ class AnkiPage(QWidget):
                 pass
             finally:
                 sleep(0.3)
+
+    def update_dir(self, file):
+        if not file:
+            return
+        self.media_line_edit.setText(file)
+        self.media_select.setDirectory(file)
 
     def update_settings(self):
         for option, wdg in AnkiPage.settings_widgets.items():

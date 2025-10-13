@@ -12,28 +12,16 @@ import traceback
 from PySide6.QtCore import QObject, Signal
 
 import util.sockets
-# import util.util as util
 import util.audio as audio
 import util.screenshot as screenshot
 from util.database import AnkiSettings, settings, sessionsdb
 
-# anki_port = 8765
 previous_notes = set()
 last_note = None
 last_note_update_time = None
 last_note_info = None
 last_note_sentence_clean = None
-# auto_update_last_note = True
-# open_note_in_gui = True
 
-# anki_deck = "Mining"
-
-# card_fields = {"Expression": AnkiSettings.expression,
-#                "Sentence": AnkiSettings.sentence,
-#                "Picture": AnkiSettings.picture,
-#                "SentenceAudio": AnkiSettings.sentence_audio}
-
-# media_dir = None
 start_session = datetime.now()
 
 
@@ -123,11 +111,9 @@ def update_note(note_id, fields, tags=""):
 
 
 def auto_update_note():
-    # global media_dir
     found_lines = []
     next_line_time = None
     substring_idx = None
-    # next_line = util.sockets.LineStored(text=None, time=None)
     images = []
     line_audio = None
     line_update = None
@@ -140,8 +126,6 @@ def auto_update_note():
     for line in text_copy:
 
         if found:
-            # next_line = line
-            # break
             found_lines[-1]["next"] = line
             found = False
 

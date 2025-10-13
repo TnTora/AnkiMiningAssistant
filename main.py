@@ -48,7 +48,7 @@ from util.database import (
     linedb,
     sessionsdb
 )
-from util.anki import start_monitoring_anki
+
 from util.mac import (
     getAllApps,
     # getAS_Process,
@@ -480,7 +480,7 @@ class MainWindow(QMainWindow):
         util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
         util.sockets.ws_server.start()
 
-        start_monitoring_anki(self.update_anki_note_info)
+        anki.start_monitoring_anki(self.update_anki_note_info)
 
     def open_config(self):
         # if self.settings_window is not None:
@@ -705,7 +705,7 @@ def main():
     # ut.hotkeys.start()
     # ut.hotkeys.wait()
     app = QApplication(sys.argv)
-    # app.setStyle("Fusion")
+    app.setStyle("Fusion")
     window = MainWindow()
     window.show()
     if sys.platform == "darwin":

@@ -9,3 +9,5 @@ test*
 *.json
 .*
 *.db
+temp*
+*.ui
