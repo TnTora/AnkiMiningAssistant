@@ -162,8 +162,8 @@ class AudioBar(QWidget):
             self.update()
 
     def paintEvent(self, event):
-        print(f"printevent: {event}, rect: {event.rect()}, region: {event.region()}")
         super().paintEvent(event)
+
         if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark:
             background_color = QColor(100, 100, 100)
         else:
@@ -192,10 +192,15 @@ class AudioBar(QWidget):
         brush.setColor(no_voice_color)
         painter.setPen(pen)
         painter.setBrush(brush)
-        bar_x_pos = 2
+
+        start_idx = max(((event.rect().x()-2)//5)-10, 0)
+        end_idx = ((event.rect().x()+event.rect().width()-2)//5)+10
+        end_idx = min(end_idx, len(self.intervals_rms_vad))
+        bar_x_pos = 2 + start_idx*5
 
         # Draw bars
-        for rms, vad in self.intervals_rms_vad:
+        for i in range(start_idx, end_idx):
+            rms, vad = self.intervals_rms_vad[i]
 
             if vad:
                 painter.setPen(pen_voice)
