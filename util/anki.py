@@ -81,7 +81,7 @@ def get_last_note():
         return max(results)
     else:
         # return -1
-        raise Exception("No note added today")
+        raise Exception("No note found")
 
 
 def get_note_info(note):
@@ -110,7 +110,11 @@ def update_note(note_id, fields, tags=""):
         invoke("guiBrowse", query=f"nid:{note_id}")
 
 
-def auto_update_note():
+def auto_update_note(update_img: bool = True, update_audio: bool = True) -> None:
+    if last_note is None:
+        # TODO: Inform user update failed
+        return
+
     found_lines = []
     next_line_time = None
     substring_idx = None
@@ -120,8 +124,13 @@ def auto_update_note():
     found = False
 
     text_copy = copy(util.sockets.text_stored)
+    curr_time = datetime.now()
 
-    # print(f"last_note_sentence_clean: {last_note_sentence_clean}")
+    if AnkiSettings.media_dir is None:
+        media_dir = get_media_dir()
+        if media_dir is None:
+            return
+        settings.update_option("anki", "media_dir", media_dir)
 
     for line in text_copy:
 
@@ -129,11 +138,7 @@ def auto_update_note():
             found_lines[-1]["next"] = line
             found = False
 
-        # print(f"line.text: {line.text}")
-
         substring_idx = line.text.find(last_note_sentence_clean)
-
-        # print(f"substring_idx: {substring_idx}")
 
         if substring_idx == -1:
             continue
@@ -142,42 +147,35 @@ def auto_update_note():
             found = True
 
     if not found_lines:
+        # TODO: Inform user that no match was found
         return
 
     if len(found_lines) > 1:
         print("more then one sentence matched")
+        # TODO: Open dialog window to allow user to select a sinle line
         return
 
     if found_lines[0]["next"]:
         next_line_time = found_lines[0]["next"].time
 
-    for img in screenshot.images_tmp:
-        if img.time < found_lines[0]["line"].time:
-            continue
-        if found_lines[0]["next"] and img.time > found_lines[0]["next"].time:
-            continue
-        images.append(img)
+    if update_img:
+        for img in screenshot.images_tmp:
+            if img.time < found_lines[0]["line"].time:
+                continue
+            if found_lines[0]["next"] and img.time > found_lines[0]["next"].time:
+                break
+            images.append(img)
 
-    if AnkiSettings.media_dir is None:
-        # AnkiSettings.media_dir = get_media_dir()
-        media_dir = get_media_dir()
-        if media_dir is None:
-            return
-        settings.update_option("anki", "media_dir", media_dir)
-
-    curr_time = datetime.now()
-
-    audio_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3")
     img_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
+    audio_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3")
 
-    line_audio = audio.buffer.extract_line_audio(found_lines[0]["line"].time, next_line_time, save_on_disk=True, save_path=audio_path)
+    if update_audio:
+        line_audio = audio.buffer.extract_line_audio(found_lines[0]["line"].time, next_line_time, save_path=audio_path)
 
     update_fields = {}
 
     if found_lines[0]["line"].text != last_note_sentence_clean:
         line_update = found_lines[0]["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
-
-    if line_update:
         update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
 
     if images:
@@ -202,6 +200,7 @@ def cleanhtml(raw_html):
 
 def monitor_last_note(widget_info_update=None):
     global last_note, last_note_update_time, last_note_info, last_note_sentence_clean
+    first_fail = True
     while True:
         try:
             last_note_tmp = get_last_note()
@@ -225,10 +224,11 @@ def monitor_last_note(widget_info_update=None):
                     auto_update_note()
 
         except Exception as e:
-            if "No note added today" in str(e):
-                if last_note != -1:
-                    print("No note added today")
-                    last_note = -1
+            if "No note found" in str(e):
+                if last_note is not None or first_fail:
+                    first_fail = False
+                    print("No note found")
+                    last_note = None
                     widget_info_update("", "")
             else:
                 traceback.print_exc()
@@ -255,3 +255,13 @@ def start_monitoring_anki(widget_info_update=None):
     anki_thread.start()
     status_thread = threading.Thread(target=check_anki_status, daemon=True)
     status_thread.start()
+
+
+def start_auto_note_update(update_img, update_audio):
+    update_thread = threading.Thread(
+        target=auto_update_note,
+        kwargs={"update_img": update_img, "update_audio": update_audio},
+        daemon=True
+    )
+    update_thread.start()
+    return update_thread

@@ -23,6 +23,7 @@ class SocketsSignals(QObject):
     """
     ws_state = Signal(int)
     listener_state = Signal(str, int)
+    line_received = Signal()
 
 
 socket_signals = SocketsSignals()
@@ -54,6 +55,7 @@ class LinesTempStorage:
     def append(self, x: LineStored):
         self.deque.append(x)
         self.trim_extra()
+        socket_signals.line_received.emit()
 
     def trim_extra(self):
         if self.last_active_date is None:

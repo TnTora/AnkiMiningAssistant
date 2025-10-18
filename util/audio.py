@@ -5,7 +5,7 @@ import numpy as np
 import soundcard as sc
 import soundfile as sf
 from silero_vad import load_silero_vad
-from time import sleep
+from time import sleep, time
 from datetime import datetime, timedelta
 from util.AggregateDevice import isloopback
 from collections import deque
@@ -15,13 +15,10 @@ import util.screenshot as screenshot
 from util.database import audiodb, AudioSettings, GeneralSettings
 
 monitoringAudio = None
-# SAMPLERATE = 44100
-# INTERVAL_DURATION = 512/16000
 mic = None
 buffer = None
 secondary_buffer = None
 record_audio_buffer = None
-# PLAYBACK = False
 
 model = load_silero_vad()
 resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
@@ -29,9 +26,10 @@ resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
 
 class AudioInterval:
 
-    def __init__(self, data, vad=None) -> None:
+    def __init__(self, data, vad=None, timestamp=None) -> None:
         self.data = data
         self.vad = vad
+        self.timestamp = timestamp or time()
 
 
 class InactiveInterval:
@@ -57,8 +55,8 @@ class AudioBuffer:
             self.load_from_db()
 
     def load_from_db(self):
-        for data, vad in audiodb.load_buffer():
-            self.update(data, vad)
+        for data, vad, timestamp in audiodb.load_buffer_intervals():
+            self.update(data, vad, timestamp)
         for start, end in audiodb.load_inactive_intervals():
             start_time = datetime.fromtimestamp(start)
             # end_time = end if not end else datetime.fromtimestamp(end)
@@ -73,11 +71,14 @@ class AudioBuffer:
                 )
             )
 
-    def update(self, new_audio, new_vad):
-        self.deque.append(AudioInterval(data=new_audio, vad=new_vad))
+    def update(self, new_audio, new_vad, timestamp=None):
+        self.deque.append(AudioInterval(data=new_audio, vad=new_vad, timestamp=timestamp))
 
     def __iter__(self):
         return self.deque.__iter__()
+
+    def __getitem__(self, index):
+        return self.deque[index]
 
     def __len__(self):
         return self.deque.__len__()
@@ -93,8 +94,33 @@ class AudioBuffer:
 
         return data
 
-    def slice_(self, start_idx=None, end_idx=None):
-        return islice(self.deque, start_idx, end_idx)
+    def get_data_in_blocks(self, blocksize: int, starting_idx: int = 0):
+        leftover_array = np.empty((0, self.channels))
+        interval_idx = starting_idx
+
+        for interval in self.slice_(start_idx=starting_idx):
+            start_idx = blocksize-len(leftover_array)
+            leftover_array = np.append(leftover_array, interval.data[0:start_idx], axis=0)
+            result, remainder = divmod(len(interval.data)-start_idx, blocksize)
+            end_idx = start_idx + int(result*blocksize)  # int(AudioSettings.samplerate * AudioSettings.interval_duration)
+
+            if len(leftover_array) == blocksize:
+                yield leftover_array, interval_idx
+
+            for i in range(start_idx, end_idx, blocksize):
+                yield interval.data[i:i+blocksize], interval_idx
+
+            interval_idx += 1
+
+            if remainder > 0:
+                leftover_array = interval.data[end_idx:]
+                if interval_idx == len(self):
+                    yield leftover_array, interval_idx
+            else:
+                leftover_array = np.empty((0, self.channels))
+
+    def slice_(self, start_idx=None, end_idx=None, step=None):
+        return islice(self.deque, start_idx, end_idx, step)
 
     @classmethod
     def get_total_offset(cls):
@@ -159,7 +185,7 @@ class AudioBuffer:
         self,
         line_time,
         next_line_time=None,
-        save_on_disk=False,
+        # save_on_disk=False,
         save_path=None,
     ):
         line_start = None
@@ -200,8 +226,8 @@ class AudioBuffer:
         line_start = max(line_start - padding, 0)
         line_end = min(last_active_interval + padding, line_end)
 
-        if save_on_disk:
-            save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
+        if save_path:
+            # save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
                 for interval in islice(data_copy, line_start, line_end):
                     f.write(interval.data)
@@ -270,8 +296,6 @@ class recordAudioBuffer(threading.Thread):
     def run(self):
         try:
             PAUSE = 0
-            # AudioBuffer.inactive = False
-            # screenshot.ImageTempStorage.inactive = False
             AudioBuffer.resume()
             with mic.recorder(samplerate=AudioSettings.samplerate) as r:
                 while True:
@@ -289,10 +313,6 @@ class recordAudioBuffer(threading.Thread):
                         print("resuming")
 
                     _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
-
-                    # if AudioBuffer.inactive:
-                    #     sleep(AudioSettings.interval_duration)
-                    #     continue
 
                     data_tensor = torch.from_numpy(_data).reshape((2, -1))
 
@@ -326,6 +346,5 @@ class recordAudioBuffer(threading.Thread):
 
         except KeyboardInterrupt:
             pass
-        # finally:
-        #     AudioBuffer.inactive = False
-        #     sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)
+        finally:
+            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)

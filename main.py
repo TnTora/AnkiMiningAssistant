@@ -1,6 +1,4 @@
 import sys
-import soundcard as sc
-# import numpy as np
 from datetime import datetime
 
 from PySide6.QtGui import (
@@ -11,15 +9,13 @@ from PySide6.QtGui import (
 from PySide6.QtCore import (
     QSize,
     Qt,
-    QRunnable,
-    QThreadPool,
+    # QThreadPool,
     # Slot,
     QTimer,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QToolButton,
-    # QTextEdit,
     QWidget,
     QCheckBox,
     QComboBox,
@@ -30,8 +26,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QAbstractItemView,
-    QDialog,
-    QDialogButtonBox,
     QSlider,
     QSizePolicy,
     QStatusBar,
@@ -51,10 +45,7 @@ from util.database import (
 
 from util.mac import (
     getAllApps,
-    # getAS_Process,
     getAppWindows,
-    # getAppAXWindows,
-    # getAXWindowFromWindowInfo
 )
 import util.sockets
 import util.audio as audio
@@ -63,55 +54,11 @@ import util.util as ut
 
 from settings_gui import SettingsWindow
 
+from confirmation_dialog import ConfirmationDialog
 
-class ConfirmationDialog(QDialog):
-    def __init__(self, text):
-        super().__init__()
+from player import PlayerState, Player_Worker
 
-        self.setWindowTitle("Confirm")
-
-        QBtn = (
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-
-        self.buttonBox = QDialogButtonBox(QBtn)
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
-
-        layout = QVBoxLayout()
-        message = QLabel(text)
-        layout.addWidget(message)
-        layout.addWidget(self.buttonBox)
-        self.setLayout(layout)
-
-
-class PlayerState:
-
-    def __init__(self):
-        self.total_intervals = 0
-        self.cursor = 0
-        self.playing = False
-
-
-class Player_Worker(QRunnable):
-    """Worker thread."""
-
-    def __init__(self, player_state: PlayerState):
-        super().__init__()
-        self.player_state = player_state
-
-    def run(self):
-
-        if self.player_state.cursor == self.player_state.total_intervals:
-            self.player_state.cursor = 0
-
-        with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=83) as sp:
-            for interval in audio.buffer.slice_(start_idx=self.player_state.cursor):
-                if not self.player_state.playing:
-                    self.player_state.playing = False
-                    break
-                sp.play(interval.data)
-                self.player_state.cursor += 1
+# from multiprocessing import Process
 
 
 class MainWindow(QMainWindow):
@@ -150,7 +97,7 @@ class MainWindow(QMainWindow):
         """
 
         self.session_box = QGroupBox("Session")
-        self.session_box.setMaximumWidth(280)
+        self.session_box.setFixedWidth(280)
         self.session_box.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self.anki_box = QGroupBox("Anki")
@@ -160,7 +107,15 @@ class MainWindow(QMainWindow):
         self.session_select = QComboBox()
         self.session_select.setEditable(True)
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
-        self.session_select.currentTextChanged.connect(self.set_session)
+        self.session_select.currentIndexChanged.connect(self.set_session)
+
+        self.session_name_timer = QTimer(self)
+        self.session_name_timer.setInterval(2000)
+        self.session_name_timer.timeout.connect(self.update_session_name)
+
+        self.session_select.editTextChanged.connect(
+            lambda: self.session_name_timer.start()
+        )
 
         self.del_session_button = QPushButton("-")
         self.del_session_button.setMinimumWidth(21)
@@ -210,7 +165,9 @@ class MainWindow(QMainWindow):
         self.rec_screen_button.setIconSize(QSize(25, 25))
         self.rec_screen_button.setMinimumWidth(40)
         self.rec_screen_button.setMinimumHeight(40)
-        # self.rec_screen_button.released.connect()
+        self.rec_screen_button.released.connect(
+            lambda: self.update_note_button(update_img=True, update_audio=False)
+        )
 
         # self.rec_audio_button = QPushButton("Audio")
         self.rec_audio_button = QToolButton()
@@ -218,14 +175,18 @@ class MainWindow(QMainWindow):
         self.rec_audio_button.setIconSize(QSize(25, 25))
         self.rec_audio_button.setMinimumWidth(40)
         self.rec_audio_button.setMinimumHeight(40)
-        # self.rec_audio_button.released.connect()
+        self.rec_audio_button.released.connect(
+            lambda: self.update_note_button(update_img=False, update_audio=True)
+        )
 
         self.rec_both_button = QToolButton()
         self.rec_both_button.setIcon(QIcon("audio-pic-1.png"))
         self.rec_both_button.setIconSize(QSize(30, 30))
         self.rec_both_button.setMinimumWidth(40)
         self.rec_both_button.setMinimumHeight(40)
-        # self.rec_both_button.released.connect()
+        self.rec_both_button.released.connect(
+            lambda: self.update_note_button(update_img=True, update_audio=True)
+        )
 
         self.anki_font = QFont()
         self.anki_font.setPointSize(18)
@@ -273,9 +234,13 @@ class MainWindow(QMainWindow):
         self.listwidget.setSpacing(10)
         self.listwidget.setWordWrap(True)
         self.listwidget.setMinimumHeight(1)
-        self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
-        self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
+        self.listwidget.addItems([line.text for line in util.sockets.text_stored])
+        self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
+        self.listwidget.itemSelectionChanged.connect(
+            lambda: print("selected idxs: ", self.listwidget.selectedIndexes())
+        )
 
         if not self.lines_shown:
             self.show_lines_label.setText("> Show Lines")
@@ -377,26 +342,31 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(self.middle_row)
         self.main_layout.addWidget(self.listwidget)
 
-        status_style = """
-            QCheckBox::indicator:!enabled{
+        if "mac" in QApplication.style().name():
+            status_margin = 10
+        else:
+            status_margin = 0
+
+        status_style = f"""
+            QCheckBox::indicator:!enabled{{
                 background-color: #e50000;
                 border: 1px solid #e50000;
                 border-radius: 5px;
                 width: 9px;
                 height: 9px;
-                margin-right:10px;
-            }
-            QCheckBox::indicator:checked:!enabled{
+                margin-right:{status_margin}px;
+            }}
+            QCheckBox::indicator:checked:!enabled{{
                 background-color: #27b700;
                 border: 1px solid #27b700;
-            }
-            QCheckBox::indicator:indeterminate:!enabled{
+            }}
+            QCheckBox::indicator:indeterminate:!enabled{{
                 background-color: #e28204;
                 border: 1px solid #e28204;
-            }
-            QCheckBox:!enabled{
+            }}
+            QCheckBox:!enabled{{
                 color: #cccccc;
-            }
+            }}
         """
 
         self.status_bar = QStatusBar()
@@ -465,27 +435,23 @@ class MainWindow(QMainWindow):
 
         util.sockets.socket_signals.listener_state.connect(self.update_listener_status)
 
+        util.sockets.socket_signals.line_received.connect(self.update_listwidget)
+
         anki.anki_signals.anki_status.connect(
             lambda state: self.anki_status.setCheckState(self.state_dict[state])
         )
 
-        self.threadpool = QThreadPool()
-        self.player = Player_Worker(self.player_state)
-        # self.player.setAutoDelete(False)
+        # self.threadpool = QThreadPool()
+        self.player = None
+        self.player_state.signals.cursor_update.connect(self.updateSlider)
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.updateSlider)
-        self.timer.start(500)
-
+        # Start the main websocket server and handle the connections that will listen for new lines
         util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
         util.sockets.ws_server.start()
 
         anki.start_monitoring_anki(self.update_anki_note_info)
 
     def open_config(self):
-        # if self.settings_window is not None:
-        #     self.settings_window.close()
-        #     self.settings_window = None
         self.settings_window = SettingsWindow()
         self.settings_window.show()
 
@@ -496,10 +462,34 @@ class MainWindow(QMainWindow):
             return
         self.listeners_status[url].setCheckState(self.state_dict[state])
 
+    def update_listwidget(self):
+        self.listwidget.clear()
+        self.listwidget.addItems([line.text for line in util.sockets.text_stored])
+        self.listwidget.setCurrentIndex(-1)
+
     def update_anki_note_info(self, expression, sentence):
         # self.last_note_info.setText(info)
         self.anki_last_card.setText(expression)
         self.anki_sentence.setText(sentence)
+
+    def update_note_button(self, update_img, update_audio):
+        if settings.general.last_session == "Manual":
+            print("manual")
+            return
+        anki.start_auto_note_update(update_img=update_img, update_audio=update_audio)
+
+    def update_session_name(self):
+        new_name = self.session_select.currentText()
+
+        if not new_name:
+            return
+        if new_name == settings.general.last_session:
+            return
+
+        sessionsdb.sessions_dict[new_name] = sessionsdb.sessions_dict.pop(settings.general.last_session)
+        settings.general.last_session = new_name
+        # print(f"settings.general.last_session: {settings.general.last_session}")
+        self.session_name_timer.stop()
 
     def add_session(self):
         new_session_name = str(datetime.now())
@@ -530,17 +520,15 @@ class MainWindow(QMainWindow):
         self.app_select.clear()
         self.app_select.addItems([a.localizedName() for a in self.apps])
 
-    def set_session(self, key):
-        if not key:
-            return
-        # print(f"session: {sessionsdb.sessions_dict[key]}")
-        settings.general.last_session = key
-        sessionsdb.current_session = sessionsdb.sessions_dict[key]
+    def set_session(self, idx):
+        settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
+        sessionsdb.current_session = sessionsdb.sessions_dict[settings.general.last_session]
+        print(f"settings.general.last_session: {settings.general.last_session};\nsession: {sessionsdb.current_session}")
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
-        self.continuous_recording.setChecked(sessionsdb.sessions_dict[key]["continuous_recording"])
-        self.auto_update_check.setChecked(sessionsdb.sessions_dict[key]["auto_update"])
-        self.open_in_browser_check.setChecked(sessionsdb.sessions_dict[key]["open_in_browser"])
+        self.continuous_recording.setChecked(sessionsdb.current_session["continuous_recording"])
+        self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
+        self.open_in_browser_check.setChecked(sessionsdb.current_session["open_in_browser"])
         self.window_select.setCurrentIndex(-1)
         try:
             self.apps = getAllApps()
@@ -548,19 +536,19 @@ class MainWindow(QMainWindow):
             self.app_select.addItems([a.localizedName() for a in self.apps])
             self.app_select.setCurrentIndex(-1)
             for i in range(len(self.apps)):
-                if self.apps[i].localizedName() == sessionsdb.sessions_dict[key]["AppName"]:
+                if self.apps[i].localizedName() == sessionsdb.current_session["AppName"]:
                     self.app_select.setCurrentIndex(i)
                     break
             if self.app_select.currentIndex() < 0:
-                raise Exception(f"{sessionsdb.sessions_dict[key]["AppName"]} not running")
+                raise Exception(f"{sessionsdb.current_session["AppName"]} not running")
             self.set_app(self.app_select.currentIndex())
             self.window_select.setCurrentIndex(-1)
             for i in range(len(self.windows)):
-                if self.windows[i]["kCGWindowName"] == sessionsdb.sessions_dict[key]["WindowTitle"]:
+                if self.windows[i]["kCGWindowName"] == sessionsdb.current_session["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
             if self.window_select.currentIndex() < 0:
-                raise Exception(f"{sessionsdb.sessions_dict[key]["WindowTitle"]} window not found")
+                raise Exception(f"{sessionsdb.current_session["WindowTitle"]} window not found")
             self.set_window(self.window_select.currentIndex())
         except Exception as e:
             print(e)
@@ -609,9 +597,11 @@ class MainWindow(QMainWindow):
         if not self.av_monitoring:
             self.monitoring_button.setText("Stop Monitoring")
             self.av_monitoring = True
+            self.play_button.setDisabled(True)
         else:
             self.monitoring_button.setText("Start Monitoring")
             self.av_monitoring = False
+            self.play_button.setDisabled(False)
 
         if audio.record_audio_buffer is None:
             audio.record_audio_buffer = audio.recordAudioBuffer()
@@ -646,31 +636,36 @@ class MainWindow(QMainWindow):
     def playAudio(self):
         if self.player_state.playing:
             self.play_button.setText("Play")
-            self.player_state.playing = False
-            # audio.PLAYBACK = False
+            self.player.stop()
+            # self.player.terminate()
+            # self.player_state.playing = False
         else:
             self.play_button.setText("Pause")
             self.player_state.total_intervals = len(audio.buffer)
-            # self.player_state.cursor = 0
-            self.player_state.playing = True
             self.player = Player_Worker(self.player_state)
-            # audio.PLAYBACK = True
-            self.threadpool.start(self.player)
+            # self.threadpool.start(self.player)
+            # self.player = Process(target=play_process, args=(audio.buffer,))
+            self.player.start()
+            # self.player_state.playing = True
 
     def slider_pressed(self):
-        self.timer.stop()
+        self.player_state.signals.cursor_update.disconnect(self.updateSlider)
 
     def slider_released(self):
         if not self.player_state.playing:
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
         else:
-            self.player_state.playing = False
-            self.play_button.setText("Play")
+            # self.player_state.playing = False
+            self.player.stop()
+            self.player.join()
+            # self.play_button.setText("Play")
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
             # self.player_state.playing = True
-            # self.player = Player_Worker(self.player_state)
+            # sleep(0.1)
+            self.player = Player_Worker(self.player_state)
             # self.threadpool.start(self.player)
-        self.timer.start()
+            self.player.start()
+        self.player_state.signals.cursor_update.connect(self.updateSlider)
 
     def changedSelection(self):
         pass
@@ -695,7 +690,8 @@ class MainWindow(QMainWindow):
 def update_all_dbs():
     settings.store_settings()
     imagedb.store_imgs(screenshot.images_tmp)
-    audiodb.store_buffer(audio.buffer)
+    # audiodb.store_buffer(audio.buffer)
+    audiodb.store_buffer_intervals(audio.buffer)
     linedb.store_lines(util.sockets.text_stored)
     sessionsdb.store_sessions()
 
@@ -723,6 +719,9 @@ def main():
         screenshot.screenshot_manager.stop_recording()
         screenshot.screenshot_manager.join()
         screenshot.screenshot_manager = None
+
+    if window.player_state.playing:
+        window.player_state.playing = False
 
     util.sockets.ws_server.stop_server()
 

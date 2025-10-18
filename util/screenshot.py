@@ -36,8 +36,8 @@ class ImageTempStorage:
         self.load_from_db()
 
     def load_from_db(self):
-        for data in imagedb.load_imgs():
-            self.deque.append(ImageStored(img_bytesIO=BytesIO(data[0]), time=datetime.fromtimestamp(data[1])))
+        for data, timestamp in imagedb.load_imgs():
+            self.deque.append(ImageStored(img_bytesIO=BytesIO(data), time=datetime.fromtimestamp(timestamp)))
 
     def append(self, x):
         self.deque.append(x)
@@ -57,6 +57,12 @@ class ImageTempStorage:
 
     def __iter__(self):
         return self.deque.__iter__()
+
+    def __getitem__(self, index):
+        return self.deque[index]
+
+    def __len__(self):
+        return self.deque.__len__()
 
     def __repr__(self) -> str:
         return self.deque.__repr__()

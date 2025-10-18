@@ -153,6 +153,7 @@ class ImageDB:
 
     def __init__(self, path) -> None:
         self.path = path
+        self.last_loaded_timestamp = 0
         self.create_table()
 
     def create_table(self):
@@ -166,9 +167,16 @@ class ImageDB:
 
     def store_imgs(self, img_buffer):
         with closing(sqlite3.connect(self.path)) as conn:
+            if len(img_buffer) == 0:
+                return
             with conn:
-                conn.execute("DELETE FROM images;")
+                conn.execute("""
+                    DELETE FROM images
+                    WHERE time < ?;
+                """, (img_buffer[0].time.timestamp(),))
                 for img in img_buffer:
+                    if img.time.timestamp() <= self.last_loaded_timestamp:
+                        continue
                     conn.execute("""
                         INSERT INTO images (time, data)
                         VALUES (?, ?);
@@ -177,14 +185,16 @@ class ImageDB:
     def load_imgs(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for data in conn.execute("SELECT data, time FROM images;"):
-                    yield data
+                for data, timestamp in conn.execute("SELECT data, time FROM images ORDER BY time ASC;"):
+                    self.last_loaded_timestamp = timestamp
+                    yield data, timestamp
 
 
 class AudioDB:
 
     def __init__(self, path) -> None:
         self.path = path
+        self.last_loaded_timestamp = 0
         self.create_tables()
 
     def create_tables(self):
@@ -194,7 +204,8 @@ class AudioDB:
                     CREATE TABLE IF NOT EXISTS audio (
                             type      TEXT,
                             data      BLOB,
-                            vad       REAL
+                            vad       REAL,
+                            timestamp REAL PRIMARY KEY
                 );""")
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS inactive_intervals (
@@ -204,20 +215,34 @@ class AudioDB:
 
     def store_buffer_intervals(self, buffer):
         with closing(sqlite3.connect(self.path)) as conn:
+            if len(buffer) == 0:
+                return
+
             with conn:
 
-                conn.execute("DELETE FROM audio;")
+                conn.execute("""
+                    DELETE FROM audio
+                    WHERE type = 'interval'
+                    AND timestamp < ?
+                """, (buffer[0].timestamp, ))
 
                 for interval in buffer:
+                    if interval.timestamp <= self.last_loaded_timestamp:
+                        continue
+
                     temp_audio = BytesIO()
 
-                    with sf.SoundFile(temp_audio, mode="w", format="WAV", channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
+                    audio_format = "WAV"
+                    if "MP3" in sf.available_formats():
+                        audio_format = "MP3"
+
+                    with sf.SoundFile(temp_audio, mode="w", format=audio_format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
                         f.write(interval.data)
 
                     conn.execute("""
-                        INSERT INTO audio (type, data, vad)
-                        VALUES (?, ?, ?);
-                    """, ("interval", temp_audio.getbuffer(), interval.vad))
+                        INSERT INTO audio (type, data, vad, timestamp)
+                        VALUES (?, ?, ?, ?);
+                    """, ("interval", temp_audio.getbuffer(), interval.vad, interval.timestamp))
 
     def store_buffer(self, buffer):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -228,11 +253,11 @@ class AudioDB:
 
                 temp_audio = BytesIO()
 
-                format = "WAV"
+                audio_format = "WAV"
                 if "MP3" in sf.available_formats():
-                    format = "MP3"
+                    audio_format = "MP3"
 
-                with sf.SoundFile(temp_audio, mode="w", format=format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
+                with sf.SoundFile(temp_audio, mode="w", format=audio_format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
                     f.write(buffer.data)
 
                 conn.execute("""
@@ -261,11 +286,16 @@ class AudioDB:
                     """, (start, end))
 
     def load_buffer_intervals(self):
-        result = None
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                result = list(conn.execute("SELECT data, vad FROM audio WHERE type = 'interval';"))
-        return result
+                for data, vad, timestamp in conn.execute("""
+                    SELECT data, vad, timestamp FROM audio
+                    WHERE type = 'interval'
+                    ORDER BY timestamp ASC;
+                """):
+                    self.last_loaded_timestamp = timestamp
+                    interval_data, sr = sf.read(BytesIO(data))
+                    yield interval_data, vad, timestamp
 
     def load_buffer_data(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -321,7 +351,7 @@ class LineDB:
     def load_lines(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for data in conn.execute("SELECT text, time FROM lines"):
+                for data in conn.execute("SELECT text, time FROM lines ORDER BY time ASC"):
                     yield data
 
 
