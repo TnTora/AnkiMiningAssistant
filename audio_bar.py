@@ -1,9 +1,12 @@
+from math import ceil, floor
 import numpy as np
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QFont,
+    QFontMetrics,
     QMouseEvent,
     QPainter,
     QPen,
@@ -14,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 import util.audio as audio
+from util.database import settings
 
 
 def calculate_rms(a):
@@ -22,10 +26,13 @@ def calculate_rms(a):
 
 class AudioBar(QWidget):
 
-    def __init__(self, h, start_interval=None, end_interval=None):
+    player_cursor_updated = Signal(int)
+    zoom_changed = Signal(int)
+
+    def __init__(self, h, start_interval=None, end_interval=None, scroll_zoom=False):
         super().__init__()
         # zoom from 1 to 32
-        self.zoom: int = 1
+        self.zoom: int = 3
         self.h = h
         self.w = 0
         self.total_intervals = len(audio.buffer)
@@ -46,7 +53,16 @@ class AudioBar(QWidget):
         self.player_cursor = 0
         self.player_cursor_x = 0
 
+        self.old_mouse_pos_x = None
+
+        if scroll_zoom:
+            self.wheelEvent = self.wheelEvent_
+
     def calculate_intervals(self):
+        """
+        Merge audio intervals based on zoom attribute and calculate
+        their respective rms
+        """
         self.intervals_rms_vad = []
         self.peak = 0
         tmp_interval = np.empty((0, audio.buffer.channels))
@@ -75,7 +91,10 @@ class AudioBar(QWidget):
         self.setFixedWidth(self.w)
 
     def setZoom(self, scale: int) -> None:
+        if self.zoom == scale:
+            return
         self.zoom = scale
+        self.zoom_changed.emit(self.zoom)
         # bar width 3px, space inbetween 2px
         self.w = (int(self.total_intervals/self.zoom) * 5) + 4
         self.setFixedSize(QSize(self.w, self.height()))
@@ -100,26 +119,30 @@ class AudioBar(QWidget):
     def getRange(self):
         return self.left_handle, self.right_handle+1
 
-    # TODO: Control zoom via scrolling
     # TODO: change cursor when close to handles
-    # TODO: add timeline
 
     def mousePressEvent(self, event: QMouseEvent):
         if self.left_handle is None:
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        if abs(event.pos().x() - self.player_cursor_x) < 10:
+        pos_x = event.pos().x()
+        if abs(pos_x - self.player_cursor_x) < 5:
             self.handle_pressed = "player"
-        elif abs(event.pos().x() - self.left_handle_x) < 10:
+        elif abs(pos_x - self.left_handle_x) < 10:
             self.handle_pressed = "left"
-        elif abs(event.pos().x() - self.right_handle_x) < 10:
+        elif abs(pos_x - self.right_handle_x) < 10:
             self.handle_pressed = "right"
+        elif self.left_handle_x < pos_x < self.right_handle_x:
+            self.handle_pressed = "selection"
+            self.old_mouse_pos_x = pos_x
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        self.player_cursor_updated.emit(self.player_cursor)
         self.handle_pressed = None
+        self.old_mouse_pos_x = None
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self.left_handle is None:
@@ -135,6 +158,9 @@ class AudioBar(QWidget):
                 # self.left_handle_x = 2+(self.left_handle)*5/self.zoom
                 self.left_handle = max(int((pos_x - 2)*self.zoom/5), 0)
 
+            if pos_x > self.player_cursor_x:
+                self.player_cursor = self.left_handle
+
             self.update()
 
         elif self.handle_pressed == "right":
@@ -143,6 +169,9 @@ class AudioBar(QWidget):
                 self.right_handle = int((self.left_handle_x + 6 - 2)*self.zoom/5)
             else:
                 self.right_handle = min(int((pos_x - 2)*self.zoom/5), self.total_intervals)
+
+            if pos_x < self.player_cursor_x:
+                self.player_cursor = self.right_handle
 
             self.update()
 
@@ -160,6 +189,48 @@ class AudioBar(QWidget):
                 self.player_cursor = tmp_interval
 
             self.update()
+
+        elif self.handle_pressed == "selection":
+            # TODO: create a handle or grab only on top and bottom margins
+
+            diff_x = pos_x - self.old_mouse_pos_x
+            diff = round(diff_x*self.zoom/5)
+            self.old_mouse_pos_x = pos_x
+
+            if self.left_handle+diff < 0:
+                diff = -self.left_handle
+            elif self.right_handle+diff > self.total_intervals:
+                diff = self.total_intervals - self.right_handle
+
+            self.left_handle += diff
+            self.right_handle += diff
+            self.player_cursor += diff
+
+            self.update()
+
+    wheel_step = 0
+
+    def wheelEvent_(self, event) -> None:
+        if abs(event.angleDelta().x()) > 2:
+            self.wheel_step = 0
+            event.ignore()
+            return
+
+        if self.wheel_step * event.angleDelta().y() < 0:
+            self.wheel_step = 0
+
+        self.wheel_step += event.angleDelta().y()
+        delta = self.wheel_step//120
+
+        if abs(delta) > 0:
+            new_zoom = max(1, min(self.zoom+delta, 32))
+            self.setZoom(new_zoom)
+            self.wheel_step = 0
+
+        event.ignore()
+
+    def to_seconds(self, pixels):
+        return (pixels-2)/5*settings.audio.interval_duration*self.zoom
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -223,12 +294,43 @@ class AudioBar(QWidget):
             brush.setColor(selection_color_brush)
             painter.setBrush(brush)
 
-            # print(f"self.right_handle, self.left_handle: {self.right_handle}, {self.left_handle}")
             selection_w = (3 + (self.right_handle - self.left_handle)*5)/self.zoom
             self.left_handle_x = 2+(self.left_handle)*5/self.zoom
             self.right_handle_x = self.left_handle_x + selection_w
-            # print(f"self.right_handle_x, self.left_handle_x: {self.right_handle_x}, {self.left_handle_x}")
             painter.drawRect(self.left_handle_x, 0, selection_w, painter.device().height())
+
+            handles_font = QFont()
+            handles_font.setPixelSize(10)
+            fm = QFontMetrics(handles_font)
+            painter.setFont(handles_font)
+            pen.setColor(QColor(0, 0, 0))
+            painter.setPen(pen)
+
+            # Draw left timestamp
+            left_to_sec = self.to_seconds(self.left_handle_x)
+            left_to_sec = (self.total_intervals * settings.audio.interval_duration) - left_to_sec
+            left_msec = round((left_to_sec % 1)*1000)
+            left_min, left_sec = divmod(left_to_sec, 60)
+            left_time_str = f"-{int(left_min):02d}:{int(left_sec):02d}.{left_msec:03d} "
+            left_txt_rect = fm.boundingRect(left_time_str).translated(self.left_handle_x, 0)
+
+            # Move left timestamp if too close to right handle
+            if selection_w < 2*(left_txt_rect.width()+5):
+                left_txt_rect.translate(3, painter.device().height()-left_txt_rect.height()-2)
+            else:
+                left_txt_rect.translate(3, painter.device().height()-1)
+
+            painter.drawText(left_txt_rect, left_time_str)
+
+            # Draw rigth timestamp
+            right_to_sec = self.to_seconds(self.right_handle_x)
+            right_to_sec = (self.total_intervals * settings.audio.interval_duration) - right_to_sec
+            right_msec = round((right_to_sec % 1)*1000)
+            right_min, right_sec = divmod(right_to_sec, 60)
+            right_time_str = f"-{int(right_min):02d}:{int(right_sec):02d}.{right_msec:03d} "
+            right_txt_rect = fm.boundingRect(right_time_str).translated(self.right_handle_x, 0)
+            right_txt_rect.translate(-right_txt_rect.width()-3, painter.device().height()-1)
+            painter.drawText(right_txt_rect, right_time_str)
 
         # Draw Player Cursor
         if self.playable:
@@ -236,7 +338,45 @@ class AudioBar(QWidget):
             pen.setColor(player_cursor_color)
             pen.setWidth(1)
             painter.setPen(pen)
-            self.player_cursor_x = 2+(self.player_cursor)*5/self.zoom
+            self.player_cursor_x = 3+(self.player_cursor)*5/self.zoom
             painter.drawLine(self.player_cursor_x, 0, self.player_cursor_x, painter.device().height())
+
+        # Draw timeline
+        pen.setColor(QColor(30, 30, 30))
+        painter.setPen(pen)
+
+        one_sec_interval_px = 5/(settings.audio.interval_duration*self.zoom)
+
+        if self.zoom < 5:
+            main_unit = 1
+            sub_unit = 0.1
+        elif self.zoom < 10:
+            main_unit = 2
+            sub_unit = 0.4
+        elif self.zoom < 25:
+            main_unit = 2
+            sub_unit = 1
+        else:
+            main_unit = 5
+            sub_unit = 2.5
+
+        # main_unit_px = main_unit * one_sec_interval_px
+        sub_unit_px = round(sub_unit * one_sec_interval_px)
+        main_unit_px = round(main_unit/sub_unit) * sub_unit_px
+        # print(f"main_unit_px: {main_unit_px}, sub_unit_px: {sub_unit_px};")
+
+        start_px = floor((event.rect().x()-2)/sub_unit_px) * sub_unit_px + 2 - 5*sub_unit_px
+        start_px = max(2, floor(start_px))
+        end_px = ceil((event.rect().x()+event.rect().width()-2)/sub_unit_px) * sub_unit_px + 2 + 5*sub_unit_px
+        end_px = min(ceil(end_px), self.w)
+        current_px = start_px
+
+        while current_px < end_px:
+            # print(f"current_px: {current_px},   (current_px-2) % main_unit_px: {(current_px-2) % main_unit_px};")
+            if abs((current_px-2) % main_unit_px) < 0.01:
+                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 10))
+            else:
+                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 5))
+            current_px += sub_unit_px
 
         painter.end()

@@ -1,7 +1,6 @@
 from PySide6.QtCore import (
     Qt,
     Signal,
-    QThreadPool
 )
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -95,8 +94,8 @@ class Thumbnail(QLabel):
 
 
 class ConfirmationDialog(QDialog):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
+        super().__init__()
         self.selected_img_idx = 0
 
         self.setWindowTitle("Confirm")
@@ -164,40 +163,35 @@ class ConfirmationDialog(QDialog):
         self.audio_top_label = QLabel("Audio Preview")
         self.audio_top_label.setFont(self.header_font)
 
-        self.slider = QSlider()
-        self.slider.setOrientation(Qt.Horizontal)
+        # self.slider = QSlider()
+        # self.slider.setOrientation(Qt.Horizontal)
 
-        self.play_button = QPushButton("Play")
-
-        self.audio_bar = AudioBar(h=80, start_interval=10, end_interval=200)
+        self.audio_bar = AudioBar(h=80, start_interval=10, end_interval=200, scroll_zoom=True)
         self.audio_bar.setPlayable(True)
         self.audio_bar.setPlayerCursor(40)
-
-        self.threadpool = QThreadPool()
-        self.player_state = PlayerState()
-        self.player = None
-
-        self.play_button.clicked.connect(self.playAudio)
-        # self.player_state.signals.cursor_update.connect(
-        #     self.update_cursor
-        # )
-        self.player_state.setCursor(self.audio_bar.left_handle)
+        self.audio_bar.player_cursor_updated.connect(
+            lambda cursor: self.player_state.setCursor(cursor)
+        )
+        self.audio_bar.zoom_changed.connect(
+            lambda zoom: self.zoom_slider.setValue(zoom)
+        )
 
         self.zoom_slider = QSlider()
         self.zoom_slider.setOrientation(Qt.Horizontal)
         self.zoom_slider.setMinimum(1)
         self.zoom_slider.setMaximum(32)
         self.zoom_slider.setFixedWidth(100)
+        self.zoom_slider.setValue(self.audio_bar.zoom)
         self.zoom_slider.valueChanged.connect(
-            lambda val: self.audio_bar.setZoom(val)
+            self.update_zoom
         )
 
         self.scroll_audio = QScrollArea()
         self.scroll_audio.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_audio.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_audio.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.scroll_audio.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # self.scroll_audio.setMaximumWidth(500)
-        self.scroll_audio.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.scroll_audio.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         self.scroll_audio.setWidget(self.audio_bar)
         self.scroll_audio.setStyleSheet("""
             QScrollArea{
@@ -205,6 +199,17 @@ class ConfirmationDialog(QDialog):
                 border-radius:2px;
             }
         """)
+        # TODO: Autoscroll while playing
+
+        self.player_state = PlayerState()
+        self.player = None
+
+        self.play_button = QPushButton("Play")
+        self.play_button.clicked.connect(self.playAudio)
+        self.player_state.signals.cursor_update.connect(
+            self.update_cursor
+        )
+        self.player_state.setCursor(self.audio_bar.left_handle)
 
         self.bottom_audio_layout = QHBoxLayout()
         self.bottom_audio_layout.setAlignment(Qt.AlignHCenter)
@@ -256,16 +261,28 @@ class ConfirmationDialog(QDialog):
             self.play_button.setText("Play")
             self.player.stop()
         else:
+            if self.audio_bar.player_cursor == self.audio_bar.right_handle:
+                self.player_state.setCursor(self.audio_bar.left_handle)
+                self.audio_bar.setPlayerCursor(self.audio_bar.left_handle)
             self.play_button.setText("Pause")
             self.player = Player_Worker(self.player_state)
-            self.threadpool.start(self.player)
+            self.player.start()
 
     def update_cursor(self, cursor: int) -> None:
         if cursor < self.audio_bar.left_handle:
+            cursor = self.audio_bar.left_handle
             self.audio_bar.setPlayerCursor(cursor=self.audio_bar.left_handle)
         elif cursor > self.audio_bar.right_handle:
+            cursor = self.audio_bar.right_handle
             self.player.stop()
             self.play_button.setText("Play")
             self.audio_bar.setPlayerCursor(cursor=self.audio_bar.right_handle)
         else:
             self.audio_bar.setPlayerCursor(cursor)
+
+        cursor_x = 2+(cursor)*5/self.audio_bar.zoom
+        self.scroll_audio.ensureVisible(cursor_x, 0)
+
+    def update_zoom(self, value):
+        self.audio_bar.setZoom(value)
+        self.scroll_audio.ensureVisible(self.audio_bar.left_handle_x, 0)
