@@ -194,9 +194,10 @@ try:
 
             if max_resolution in resolutions:
                 resolution_limit = resolutions[max_resolution]
-                aspect_ratio = width/height
-                height = sqrt(resolution_limit/aspect_ratio)
-                width = aspect_ratio * height
+                if width*height > resolution_limit:
+                    aspect_ratio = width/height
+                    height = sqrt(resolution_limit/aspect_ratio)
+                    width = aspect_ratio * height
 
             configuration = SCStreamConfiguration()
             configuration.setCapturesAudio_(False)

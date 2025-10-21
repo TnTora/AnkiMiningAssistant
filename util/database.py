@@ -244,6 +244,25 @@ class AudioDB:
                         VALUES (?, ?, ?, ?);
                     """, ("interval", temp_audio.getbuffer(), interval.vad, interval.timestamp))
 
+    def store_inactive_intervals(self, buffer):
+        with closing(sqlite3.connect(self.path)) as conn:
+            with conn:
+                conn.execute("DELETE FROM inactive_intervals;")
+
+                for interval in buffer.inactive_intervals:
+                    start = interval.start_time.timestamp()
+                    # end = interval.end_time if not interval.end_time else interval.end_time.timestamp()
+
+                    try:
+                        end = interval.end_time.timestamp()
+                    except AttributeError:
+                        end = None
+
+                    conn.execute("""
+                        INSERT INTO inactive_intervals (start, end)
+                        VALUES (?, ?);
+                    """, (start, end))
+
     def store_buffer(self, buffer):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
@@ -371,6 +390,10 @@ class SessionDB:
                 "auto_update": False,
                 "open_in_browser": True
             }
+        try:
+            self.current_session = self.sessions_dict[GeneralSettings.last_session]
+        except KeyError:
+            self.current_session = self.sessions_dict["Manual"]
 
     def create_table(self):
         with closing(sqlite3.connect(self.path)) as conn:
