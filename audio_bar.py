@@ -29,13 +29,14 @@ class AudioBar(QWidget):
     player_cursor_updated = Signal(int)
     zoom_changed = Signal(int)
 
-    def __init__(self, h, start_interval=None, end_interval=None, scroll_zoom=False):
+    def __init__(self, h, audio_data=None, start_interval=None, end_interval=None, scroll_zoom=False):
         super().__init__()
         # zoom from 1 to 32
         self.zoom: int = 3
         self.h = h
         self.w = 0
-        self.total_intervals = len(audio.buffer)
+        self.audio_data = audio_data or audio.buffer
+        self.total_intervals = len(self.audio_data)
         self.setFixedHeight(h)
         self.intervals_rms_vad = []
         self.peak = 0
@@ -44,13 +45,12 @@ class AudioBar(QWidget):
         self.left_handle = start_interval
         self.right_handle = end_interval
 
-        self.left_handle_x = 0
-        self.right_handle_x = 0
-
+        self.left_handle_x = 2+(self.left_handle)*5/self.zoom
+        self.right_handle_x = 5+(self.right_handle)*5/self.zoom
         self.handle_pressed = None
 
         self.playable = False
-        self.player_cursor = 0
+        self.player_cursor = -100
         self.player_cursor_x = 0
 
         self.old_mouse_pos_x = None
@@ -68,7 +68,7 @@ class AudioBar(QWidget):
         tmp_interval = np.empty((0, audio.buffer.channels))
         tmp_vad = False
         i = 0
-        for interval in audio.buffer:
+        for interval in self.audio_data:
             tmp_interval = np.append(tmp_interval, interval.data, axis=0)
             tmp_vad = tmp_vad or interval.vad > 0.5
 
@@ -104,6 +104,8 @@ class AudioBar(QWidget):
     def setPlayable(self, playable: bool) -> None:
         """Display player cursor"""
         self.playable = playable
+        if self.player_cursor < 0:
+            self.player_cursor = 0
 
     def setPlayerCursor(self, cursor: int) -> None:
         """Set cursor to a specific interval"""
@@ -114,6 +116,18 @@ class AudioBar(QWidget):
             return
 
         self.player_cursor = cursor
+        self.update()
+
+    def setRange(self, start: int, end: int) -> None:
+        self.left_handle = start
+        self.right_handle = end
+        self.left_handle_x = 2+(self.left_handle)*5/self.zoom
+        self.right_handle_x = 5+(self.right_handle)*5/self.zoom
+
+        if self.playable:
+            self.player_cursor = start
+            self.player_cursor_updated.emit(self.player_cursor)
+
         self.update()
 
     def getRange(self):
@@ -140,7 +154,8 @@ class AudioBar(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        self.player_cursor_updated.emit(self.player_cursor)
+        if self.handle_pressed in ["player", "selection"] and self.playable:
+            self.player_cursor_updated.emit(self.player_cursor)
         self.handle_pressed = None
         self.old_mouse_pos_x = None
 
@@ -158,7 +173,7 @@ class AudioBar(QWidget):
                 # self.left_handle_x = 2+(self.left_handle)*5/self.zoom
                 self.left_handle = max(int((pos_x - 2)*self.zoom/5), 0)
 
-            if pos_x > self.player_cursor_x:
+            if pos_x > self.player_cursor_x and self.playable:
                 self.player_cursor = self.left_handle
 
             self.update()
@@ -170,7 +185,7 @@ class AudioBar(QWidget):
             else:
                 self.right_handle = min(int((pos_x - 2)*self.zoom/5), self.total_intervals)
 
-            if pos_x < self.player_cursor_x:
+            if pos_x < self.player_cursor_x and self.playable:
                 self.player_cursor = self.right_handle
 
             self.update()
@@ -204,7 +219,8 @@ class AudioBar(QWidget):
 
             self.left_handle += diff
             self.right_handle += diff
-            self.player_cursor += diff
+            if self.playable:
+                self.player_cursor += diff
 
             self.update()
 

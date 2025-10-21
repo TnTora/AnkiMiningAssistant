@@ -197,6 +197,7 @@ class AudioBuffer:
             curr_time = datetime.now()
 
         if curr_time - line_time - AudioBuffer.total_offset > AudioBuffer.storage_time_limit:
+            print("Outside Buffer scope")
             return
 
         data_copy = list(self.slice_())
@@ -217,7 +218,7 @@ class AudioBuffer:
         last_active_interval = line_end
 
         j = line_start + 1
-        for i in self.slice_(line_start+1, line_end):
+        for i in islice(data_copy, line_start+1, line_end):
             j += 1
             if i.vad > 0.5:
                 last_active_interval = j
@@ -227,18 +228,16 @@ class AudioBuffer:
         line_end = min(last_active_interval + padding, line_end)
 
         if save_path:
-            # save_path = save_path or f"audio_tmp/{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
                 for interval in islice(data_copy, line_start, line_end):
                     f.write(interval.data)
             return save_path
         else:
-            data_copy = np.concatenate(
-                [interval.data for interval in islice(data_copy, line_start, line_end)],
-                axis=0,
-            )
-
-            return data_copy
+            # data_copy = np.concatenate(
+            #     [interval.data for interval in islice(data_copy, line_start, line_end)],
+            #     axis=0,
+            # )
+            return data_copy, line_start, line_end
 
 
 def get_mics():

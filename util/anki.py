@@ -8,6 +8,8 @@ from time import sleep
 from datetime import datetime
 from copy import copy
 import traceback
+import soundfile as sf
+from itertools import islice
 
 from PySide6.QtCore import QObject, Signal
 
@@ -27,6 +29,22 @@ start_session = datetime.now()
 
 class AnkiSignals(QObject):
     anki_status = Signal(int)
+    last_note_changed = Signal(str, str)
+    note_update_info = Signal(str)
+    note_update_select_line = Signal(list)
+    note_update_confirm = Signal(list, object, tuple, str)
+    note_update_confirm_audio = Signal(list, list, tuple, str)
+
+    wait_event = None
+    returned_value = None
+
+    def wait_result(self) -> None:
+        self.returned_value = None
+        self.wait_event = threading.Event()
+        self.wait_event.wait()
+        tmp_result = self.returned_value
+        self.returned_value = None
+        return tmp_result
 
 
 anki_signals = AnkiSignals()
@@ -110,7 +128,7 @@ def update_note(note_id, fields, tags=""):
         invoke("guiBrowse", query=f"nid:{note_id}")
 
 
-def auto_update_note(update_img: bool = True, update_audio: bool = True) -> None:
+def auto_update_note(update_img: bool = True, update_audio: bool = True, confirmation: bool = False) -> None:
     if last_note is None:
         # TODO: Inform user update failed
         return
@@ -122,6 +140,9 @@ def auto_update_note(update_img: bool = True, update_audio: bool = True) -> None
     line_audio = None
     line_update = None
     found = False
+
+    selected_img = None
+    update_fields = {}
 
     text_copy = copy(util.sockets.text_stored)
     curr_time = datetime.now()
@@ -147,40 +168,79 @@ def auto_update_note(update_img: bool = True, update_audio: bool = True) -> None
             found = True
 
     if not found_lines:
-        # TODO: Inform user that no match was found
+        anki_signals.note_update_info.emit(f"No matches found for:\n{last_note_sentence_clean}")
         return
 
     if len(found_lines) > 1:
         print("more then one sentence matched")
         # TODO: Open dialog window to allow user to select a sinle line
-        return
+        anki_signals.note_update_select_line.emit(found_lines)
+        selected_line_idx = anki_signals.wait_result()
+        if selected_line_idx is None:
+            return
+        selected_line = found_lines[selected_line_idx]
+    else:
+        selected_line = found_lines[0]
 
-    if found_lines[0]["next"]:
-        next_line_time = found_lines[0]["next"].time
+    if selected_line["next"]:
+        next_line_time = selected_line["next"].time
 
     if update_img:
         for img in screenshot.images_tmp:
-            if img.time < found_lines[0]["line"].time:
+            if img.time < selected_line["line"].time:
                 continue
-            if found_lines[0]["next"] and img.time > found_lines[0]["next"].time:
+            if selected_line["next"] and img.time > selected_line["next"].time:
                 break
             images.append(img)
 
     img_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp")
     audio_path = os.path.join(AnkiSettings.media_dir, f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3")
 
-    if update_audio:
-        line_audio = audio.buffer.extract_line_audio(found_lines[0]["line"].time, next_line_time, save_path=audio_path)
+    if confirmation:
+        if update_audio:
+            # data_, interval (line_start, line_end)
+            line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time)
 
-    update_fields = {}
+        line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
 
-    if found_lines[0]["line"].text != last_note_sentence_clean:
-        line_update = found_lines[0]["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
+        anki_signals.note_update_confirm.emit(images, line_audio[0], line_audio[1:], line_update)
+        res = anki_signals.wait_result()
+
+        if res is None:
+            return
+
+        selected_img_idx, audio_interval, line_update = res
+
         update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
+        # print(f"selected_img_idx: {selected_img_idx}")
+        if selected_img_idx is not None:
+            selected_img = images[selected_img_idx]
 
-    if images:
+        if line_audio and audio_interval:
+            with sf.SoundFile(file=audio_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
+                for interval in islice(line_audio[0], audio_interval[0], audio_interval[1]):
+                    f.write(interval.data)
+
+    else:
+        if update_audio:
+            line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time, save_path=audio_path)
+
+        if images:
+            selected_img = images[0]
+
+        if selected_line["line"].text != last_note_sentence_clean:
+            line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
+            update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
+
+    # if selected_line["line"].text != last_note_sentence_clean:
+    #     line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
+    #     update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
+
+    # print(f"selected_img: {selected_img}")
+    if selected_img:
+        # print("saving file")
         with open(img_path, "wb") as f:
-            f.write(images[0].img_bytesIO.getbuffer())
+            f.write(selected_img.img_bytesIO.getbuffer())
         update_fields[AnkiSettings.picture[last_note_info["noteType"]]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
     if line_audio:
@@ -205,21 +265,18 @@ def monitor_last_note(widget_info_update=None):
         try:
             last_note_tmp = get_last_note()
 
+            last_note = last_note_tmp
+            last_note_update_time = datetime.now()
+            last_note_info = get_note_info(last_note)
+
+            if last_note_info is None:
+                continue
+
+            last_note_sentence_clean = cleanhtml(last_note_info["Sentence"])
+            anki_signals.last_note_changed.emit(last_note_info["Expression"], last_note_sentence_clean)
+
             if last_note_tmp not in previous_notes:
-
-                last_note = last_note_tmp
-                last_note_update_time = datetime.now()
-                last_note_info = get_note_info(last_note)
-
-                if last_note_info is None:
-                    continue
-
-                last_note_sentence_clean = cleanhtml(last_note_info["Sentence"])
                 previous_notes.add(last_note_tmp)
-
-                if widget_info_update:
-                    widget_info_update(last_note_info["Expression"], last_note_sentence_clean)
-
                 if sessionsdb.current_session["auto_update"] and last_note > start_session.timestamp()*1000:
                     auto_update_note()
 
@@ -229,7 +286,7 @@ def monitor_last_note(widget_info_update=None):
                     first_fail = False
                     print("No note found")
                     last_note = None
-                    widget_info_update("", "")
+                    anki_signals.last_note_changed.emit("", "")
             else:
                 traceback.print_exc()
         finally:
@@ -257,10 +314,10 @@ def start_monitoring_anki(widget_info_update=None):
     status_thread.start()
 
 
-def start_auto_note_update(update_img, update_audio):
+def start_auto_note_update(update_img, update_audio, confirmation):
     update_thread = threading.Thread(
         target=auto_update_note,
-        kwargs={"update_img": update_img, "update_audio": update_audio},
+        kwargs={"update_img": update_img, "update_audio": update_audio, "confirmation": confirmation},
         daemon=True
     )
     update_thread.start()
