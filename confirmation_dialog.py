@@ -48,7 +48,7 @@ class AlertDialog(QDialog):
         self.alert_label.setWordWrap(True)
 
         self.layout = QVBoxLayout()
-        self.layout.addWidget(self.alert_label)
+        self.layout.addWidget(self.alert_label, alignment=Qt.AlignHCenter)
         self.layout.addWidget(self.buttonBox)
         self.setLayout(self.layout)
 
@@ -315,7 +315,8 @@ class NotePreviewDialog(QDialog):
             self.sentence_font = QFont()
             self.sentence_font.setPointSize(20)
 
-            self.sentence_text_edit = QTextEdit(self.sentence)
+            self.sentence_text_edit = QTextEdit()
+            self.sentence_text_edit.setPlainText(self.sentence)
             self.sentence_text_edit.setFixedHeight(100)
             self.sentence_text_edit.setFont(self.sentence_font)
 
@@ -390,5 +391,5 @@ class NotePreviewDialog(QDialog):
         if self.audio_data:
             tmp_interval = self.audio_bar.getRange()
         if self.sentence:
-            tmp_sentence = self.sentence_text_edit.toPlainText()
+            tmp_sentence = self.sentence_text_edit.toPlainText().strip()
         return tmp_img_idx, tmp_interval, tmp_sentence
