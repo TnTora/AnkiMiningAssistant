@@ -99,24 +99,26 @@ screenshot_manager = None
 #         pass
 
 
-def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = None, save_on_disk: bool = False):
+def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = None, save_path: str | None = None):
     try:
 
-        if curr_time is None:
-            curr_time = datetime.now()
+        # if curr_time is None:
+        #     curr_time = datetime.now()
 
-        curr_time_str = curr_time.strftime('%Y-%m-%d_%H_%M_%S')
+        # curr_time_str = curr_time.strftime('%Y-%m-%d_%H_%M_%S')
 
         if wait_sec is not None:
             sleep(wait_sec)
 
         # path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
-        path_tmp = f"{curr_time_str}.webp" if save_on_disk else None
-        tmp_img = capture_screenshot(path_tmp, win, format=ImageSettings.format)
+        # path_tmp = f"{curr_time_str}.webp" if save_on_disk else None
+        tmp_img = capture_screenshot(save_path, win, format=ImageSettings.format)
         # images_tmp[curr_time] = tmp_img
-        images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))
+        if isinstance(tmp_img, BytesIO):
+            images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))
 
     except KeyboardInterrupt:
+        # TODO: Change errors to handle or ignore
         pass
 
 

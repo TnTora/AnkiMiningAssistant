@@ -13,6 +13,7 @@ from util.database import GeneralSettings, linedb
 import util.audio as audio
 
 ws_server = None
+selected_line = {"line": None, "next": None, "substring_idx": None}
 
 
 class SocketsSignals(QObject):
@@ -23,7 +24,7 @@ class SocketsSignals(QObject):
     """
     ws_state = Signal(int)
     listener_state = Signal(str, int)
-    line_received = Signal()
+    line_received = Signal(object)
 
 
 socket_signals = SocketsSignals()
@@ -55,7 +56,7 @@ class LinesTempStorage:
     def append(self, x: LineStored):
         self.deque.append(x)
         self.trim_extra()
-        socket_signals.line_received.emit()
+        socket_signals.line_received.emit(x)
 
     def trim_extra(self):
         if self.last_active_date is None:

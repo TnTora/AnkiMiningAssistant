@@ -388,7 +388,8 @@ class SessionDB:
                 "WindowTitle": "",
                 "continuous_recording": True,
                 "auto_update": False,
-                "open_in_browser": True
+                "open_in_browser": True,
+                "preview_note": False
             }
         try:
             self.current_session = self.sessions_dict[GeneralSettings.last_session]
@@ -405,8 +406,8 @@ class SessionDB:
                             WindowTitle     TEXT,
                             continuous_recording BOOLEAN,
                             auto_update     BOOLEAN,
-                            open_in_browser BOOLEAN
-
+                            open_in_browser BOOLEAN,
+                            preview_note    BOOLEAN
                 );""")
 
     def store_sessions(self):
@@ -415,21 +416,24 @@ class SessionDB:
                 conn.execute("DELETE FROM sessions;")
                 for name in self.sessions_dict:
                     conn.execute("""
-                        INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser)
-                        VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser);
+                        INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note)
+                        VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser, :preview_note);
                     """, {"name": name} | self.sessions_dict[name])
 
     def load_sessions(self):
         # sessions_dict = {}
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for name, a_name, w_title, c_rec, a_up, open_gui in conn.execute("SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser FROM sessions"):
+                for name, a_name, w_title, c_rec, a_up, open_gui, preview_note in conn.execute("""
+                    SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note FROM sessions
+                """):
                     self.sessions_dict[name] = {
                         "AppName": a_name,
                         "WindowTitle": w_title,
                         "continuous_recording": c_rec,
                         "auto_update": a_up,
                         "open_in_browser": open_gui,
+                        "preview_note": preview_note
                     }
         # return self.sessions_dict
 

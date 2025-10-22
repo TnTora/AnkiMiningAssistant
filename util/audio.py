@@ -183,11 +183,11 @@ class AudioBuffer:
 
     def extract_line_audio(
         self,
-        line_time,
-        next_line_time=None,
-        # save_on_disk=False,
-        save_path=None,
-    ):
+        line_time: datetime,
+        next_line_time: datetime | None = None,
+        save_path: str | None = None,
+    ) -> str | tuple[list, int, int] | None:
+
         line_start = None
         line_end = None
 
@@ -204,7 +204,6 @@ class AudioBuffer:
 
         if next_line_time:
             line_audio_length = next_line_time - line_time
-            # print(f"line_audio_length: {line_audio_length}, in seconds: {line_audio_length.total_seconds()}")
         else:
             line_end = len(self.deque)
 
@@ -233,16 +232,11 @@ class AudioBuffer:
                     f.write(interval.data)
             return save_path
         else:
-            # data_copy = np.concatenate(
-            #     [interval.data for interval in islice(data_copy, line_start, line_end)],
-            #     axis=0,
-            # )
             return data_copy, line_start, line_end
 
 
 def get_mics():
     mikes = sc.all_microphones()
-    # print("\nmikes:")
     loopbacks = []
     for i in range(len(mikes)):
         loopback = isloopback(mikes[i].id)
@@ -345,5 +339,5 @@ class recordAudioBuffer(threading.Thread):
 
         except KeyboardInterrupt:
             pass
-        finally:
-            sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)
+        # finally:
+        #     sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)

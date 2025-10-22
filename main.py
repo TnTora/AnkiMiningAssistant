@@ -7,6 +7,7 @@ from PySide6.QtGui import (
     # QPalette,
 )
 from PySide6.QtCore import (
+    QItemSelectionModel,
     QSize,
     Qt,
     # QThreadPool,
@@ -212,6 +213,12 @@ class MainWindow(QMainWindow):
             lambda state: self.set_check_setting(state, "open_in_browser")
         )
 
+        self.preview_note_check = QCheckBox("Preview Note")
+
+        self.preview_note_check.checkStateChanged.connect(
+            lambda state: self.set_check_setting(state, "preview_note")
+        )
+
         self.audio_slider = QSlider()
         self.audio_slider.setMinimum(0)
         self.audio_slider.setMaximum(10000)
@@ -241,7 +248,7 @@ class MainWindow(QMainWindow):
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
         self.listwidget.itemSelectionChanged.connect(
-            lambda: print("selected idxs: ", self.listwidget.selectedIndexes())
+            lambda: print("selected idxs: ", sorted([a.row() for a in self.listwidget.selectedIndexes()]))
         )
 
         if not self.lines_shown:
@@ -297,6 +304,7 @@ class MainWindow(QMainWindow):
         self.anki_checks_layout.setAlignment(Qt.AlignLeft)
         self.anki_checks_layout.addWidget(self.auto_update_check)
         self.anki_checks_layout.addWidget(self.open_in_browser_check)
+        self.anki_checks_layout.addWidget(self.preview_note_check)
 
         self.anki_box_layout = QVBoxLayout()
         self.anki_box_layout.addLayout(self.anki_info_grid)
@@ -421,7 +429,12 @@ class MainWindow(QMainWindow):
         # Set session after creating othr widgets since they are
         # used in set_session
         if settings.general.last_session in sessionsdb.sessions_dict:
-            self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session))
+            tmp_idx = list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session)
+            self.session_select.setCurrentIndex(tmp_idx)
+        else:
+            tmp_idx = list.index(list(sessionsdb.sessions_dict.keys()), "Manual")
+            self.session_select.setCurrentIndex(tmp_idx)
+        self.set_session(tmp_idx)
 
         util.sockets.socket_signals.ws_state.connect(self.update_ws_status)
         util.sockets.socket_signals.listener_state.connect(self.update_listener_status)
@@ -443,13 +456,24 @@ class MainWindow(QMainWindow):
 
         anki.start_monitoring_anki()
 
-        foo = NotePreviewDialog(
-            imgs=screenshot.images_tmp.deque,
-            audio_data=audio.buffer,
-            audio_range=(10, 200),
-            sentence="日本人が肉を日常食べるようになったのは明治以降である. 日本人が肉を日常食べるようになったのは明治以降である."
-        )
-        foo.open()
+        # def test():
+        #     self.listwidget.addItem("ndsvns")
+        #     self.listwidget.takeItem(0)
+
+        # self.tm = QTimer(self)
+        # self.tm.setInterval(500)
+        # self.tm.timeout.connect(
+        #     test
+        # )
+        # self.tm.start()
+
+        # foo = NotePreviewDialog(
+        #     imgs=screenshot.images_tmp.deque,
+        #     audio_data=audio.buffer,
+        #     audio_range=(10, 200),
+        #     sentence="日本人が肉を日常食べるようになったのは明治以降である. 日本人が肉を日常食べるようになったのは明治以降である."
+        # )
+        # foo.open()
 
     def open_config(self) -> None:
         self.settings_window = SettingsWindow()
@@ -471,11 +495,12 @@ class MainWindow(QMainWindow):
     def update_anki_status(self, state: int) -> None:
         self.anki_status.setCheckState(Qt.CheckState(state))
 
-    @Slot()
-    def update_listwidget(self) -> None:
-        self.listwidget.clear()
-        self.listwidget.addItems([line.text for line in util.sockets.text_stored])
-        self.listwidget.setCurrentRow(-1)
+    @Slot(object)
+    def update_listwidget(self, line) -> None:
+        # self.listwidget.clear()
+        # self.listwidget.addItems([line.text for line in util.sockets.text_stored])
+        self.listwidget.addItems(line.text)
+        # self.listwidget.setCurrentRow(-1)
 
     @Slot(str, str)
     def update_anki_note_info(self, expression: str, sentence: str) -> None:
@@ -485,9 +510,10 @@ class MainWindow(QMainWindow):
 
     def update_note_button(self, update_img: bool, update_audio: bool) -> None:
         if settings.general.last_session == "Manual":
-            print("manual")
+            # print("manual")
+            anki.start_manual_note_update(update_img=update_img, update_audio=update_audio)
             return
-        anki.start_auto_note_update(update_img=update_img, update_audio=update_audio, confirmation=True)
+        anki.start_auto_note_update(update_img=update_img, update_audio=update_audio, confirmation=sessionsdb.current_session["preview_note"])
 
     def update_session_name(self) -> None:
         new_name = self.session_select.currentText()
@@ -510,6 +536,7 @@ class MainWindow(QMainWindow):
             "continuous_recording": settings.audio.continuous_recording,
             "auto_update": settings.anki.auto_update_last_note,
             "open_in_browser": settings.anki.open_note_in_gui,
+            "preview_note": False
         }
         self.session_select.clear()
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
@@ -540,6 +567,15 @@ class MainWindow(QMainWindow):
         self.continuous_recording.setChecked(sessionsdb.current_session["continuous_recording"])
         self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
         self.open_in_browser_check.setChecked(sessionsdb.current_session["open_in_browser"])
+        self.preview_note_check.setChecked(sessionsdb.current_session["preview_note"])
+
+        if settings.general.last_session == "Manual":
+            self.auto_update_check.setEnabled(False)
+            self.preview_note_check.setEnabled(False)
+        else:
+            self.auto_update_check.setEnabled(True)
+            self.preview_note_check.setEnabled(True)
+
         self.window_select.setCurrentIndex(-1)
         try:
             self.apps = getAllApps()
@@ -705,6 +741,8 @@ class MainWindow(QMainWindow):
             self.resize(self.width(), height)
         else:
             self.listwidget.setCurrentRow(-1)
+            for row in (a.row() for a in self.listwidget.selectedIndexes()):
+                self.listwidget.setCurrentRow(row, QItemSelectionModel.SelectionFlag.Deselect)
             self.lines_shown = False
             self.with_lines_height = self.height()
             self.listwidget.hide()

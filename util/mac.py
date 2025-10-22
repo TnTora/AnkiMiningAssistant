@@ -1,14 +1,10 @@
-# import AppKit
 import Quartz
 from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
     NSBitmapImageFileTypePNG,
-    # NSBitmapImageFileTypeJPEG,
-    # NSImageCompressionFactor,
     NSBitmapImageRep,
-    # NSBundle,
     NSWorkspace,
 )
 
@@ -167,7 +163,7 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP", max_resolution: str = "1080p"):
+    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -184,9 +180,7 @@ try:
                 content_filter = SCContentFilter(desktopIndependentWindow=capture_target)
             else:
                 capture_target = shareable_content.displays()[0]
-                # print(f"id: {capture_target.displayID()}")
                 content_filter = SCContentFilter(display=capture_target, excludingWindows=[])
-                # print(content_filter)
 
             # adjust for high DPI
             width = capture_target.frame().size.width*content_filter.pointPixelScale()
@@ -219,9 +213,6 @@ try:
             nonlocal file_data
 
             bitmap_rep = NSBitmapImageRep(CGImage=image)
-            # data = bitmap_rep.representationUsingType_properties_(
-            #     NSBitmapImageFileTypeJPEG, {NSImageCompressionFactor: 0.5}
-            # )
             data = bitmap_rep.representationUsingType_properties_(
                 NSBitmapImageFileTypePNG, None
             )
@@ -230,14 +221,7 @@ try:
             file_data = BytesIO(data)
             with Image.open(file_data) as img:
                 img.save(container, format=format)
-            # img = Image.open(file_data)
-            # img.save(buffered, format="WebP")
-            # img.save(save_path_tmp)
-            # img.close()
-            # stored_data.append(data)
-            # base_path, ext = os.path.splitext(save_path)
-            # data.writeToFile_atomically_(save_path, True)
-            # logging.info(f"Screenshot saved at {save_path}")
+
             finish.set()
 
         SCShareableContent.getShareableContentWithCompletionHandler_(
