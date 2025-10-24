@@ -32,7 +32,7 @@ from util.anki import (
 from util.database import settings
 
 
-# https://gist.githubusercontent.com/JokerMartini/7fe4f204b6a7912be3ac/raw/e2d6e7aa285c0326334a96244b3a2b21f9d5d3a9/Remove%2520Items%2520From%2520Layout%2520%257C%2520.py
+# https://gist.github.com/JokerMartini/7fe4f204b6a7912be3ac
 def clear_layout(layout):
     """Remove all widgets and layouts contained in the input of the function."""
     for x in reversed(range(layout.count())):
