@@ -112,7 +112,7 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = N
 
         # path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
         # path_tmp = f"{curr_time_str}.webp" if save_on_disk else None
-        tmp_img = capture_screenshot(save_path, win, format=ImageSettings.format)
+        tmp_img = capture_screenshot(save_path, win, img_format=ImageSettings.format)
         # images_tmp[curr_time] = tmp_img
         if isinstance(tmp_img, BytesIO):
             images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))

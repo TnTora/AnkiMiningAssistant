@@ -51,9 +51,8 @@ from util.mac import (
     getAppWindows,
 )
 import util.sockets
-import util.audio as audio
-import util.screenshot as screenshot
-import util.util as ut
+from util import audio
+from util import screenshot
 
 from settings_gui import SettingsWindow
 
@@ -61,11 +60,17 @@ from confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
 from player import PlayerState, Player_Worker
 
-# from multiprocessing import Process
+
+class SelectionError(Exception):
+    """Raised when automatic selection in a widget fails."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self):  # noqa: PLR0915
         super().__init__()
         self.settings_window = None
         self.lines_shown = False
@@ -231,7 +236,7 @@ class MainWindow(QMainWindow):
         self.play_button = QPushButton("Play")
         self.play_button.released.connect(self.playAudio)
 
-        self.show_lines_label = QLabel("∨ Hide Lines")
+        self.show_lines_label = QLabel("∨ Hide Lines")  # noqa: RUF001
         self.show_lines_label.mouseReleaseEvent = self.toggle_lines
         self.settings_button = QPushButton("Settings")
         self.settings_button.released.connect(self.open_config)
@@ -352,10 +357,7 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(self.middle_row)
         self.main_layout.addWidget(self.listwidget)
 
-        if "mac" in QApplication.style().name():
-            status_margin = 10
-        else:
-            status_margin = 0
+        status_margin = 10 if "mac" in QApplication.style().name() else 0
 
         status_style = f"""
             QCheckBox::indicator:!enabled{{
@@ -456,17 +458,6 @@ class MainWindow(QMainWindow):
 
         anki.start_monitoring_anki()
 
-        # def test():
-        #     self.listwidget.addItem("ndsvns")
-        #     self.listwidget.takeItem(0)
-
-        # self.tm = QTimer(self)
-        # self.tm.setInterval(500)
-        # self.tm.timeout.connect(
-        #     test
-        # )
-        # self.tm.start()
-
         # foo = NotePreviewDialog(
         #     imgs=screenshot.images_tmp.deque,
         #     audio_data=audio.buffer,
@@ -508,7 +499,7 @@ class MainWindow(QMainWindow):
         self.anki_last_card.setText(expression)
         self.anki_sentence.setText(sentence)
 
-    def update_note_button(self, update_img: bool, update_audio: bool) -> None:
+    def update_note_button(self, *, update_img: bool, update_audio: bool) -> None:
         if settings.general.last_session == "Manual":
             # print("manual")
             anki.start_manual_note_update(update_img=update_img, update_audio=update_audio)
@@ -561,7 +552,7 @@ class MainWindow(QMainWindow):
     def set_session(self, idx) -> None:
         settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
         sessionsdb.current_session = sessionsdb.sessions_dict[settings.general.last_session]
-        # print(f"settings.general.last_session: {settings.general.last_session};\nsession: {sessionsdb.current_session}")
+
         self.app_select.currentIndexChanged.disconnect(self.set_app)
         self.window_select.currentIndexChanged.disconnect(self.set_window)
         self.continuous_recording.setChecked(sessionsdb.current_session["continuous_recording"])
@@ -572,9 +563,11 @@ class MainWindow(QMainWindow):
         if settings.general.last_session == "Manual":
             self.auto_update_check.setEnabled(False)
             self.preview_note_check.setEnabled(False)
+            self.session_select.setEditable(False)
         else:
             self.auto_update_check.setEnabled(True)
             self.preview_note_check.setEnabled(True)
+            self.session_select.setEditable(True)
 
         self.window_select.setCurrentIndex(-1)
         try:
@@ -582,22 +575,35 @@ class MainWindow(QMainWindow):
             self.app_select.clear()
             self.app_select.addItems([a.localizedName() for a in self.apps])
             self.app_select.setCurrentIndex(-1)
+
             for i in range(len(self.apps)):
                 if self.apps[i].localizedName() == sessionsdb.current_session["AppName"]:
                     self.app_select.setCurrentIndex(i)
                     break
+
             if self.app_select.currentIndex() < 0:
-                raise Exception(f"{sessionsdb.current_session["AppName"]} not running")
+                if sessionsdb.current_session["AppName"]:
+                    msg = f"{sessionsdb.current_session["AppName"]} not running"
+                else:
+                    msg = ""
+                self.status_bar.showMessage(msg, 5000)
+                raise SelectionError(msg)  # noqa: TRY301
+
             self.set_app(self.app_select.currentIndex())
             self.window_select.setCurrentIndex(-1)
+
             for i in range(len(self.windows)):
                 if self.windows[i]["kCGWindowName"] == sessionsdb.current_session["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
+
             if self.window_select.currentIndex() < 0:
-                raise Exception(f"{sessionsdb.current_session["WindowTitle"]} window not found")
+                msg = f"{sessionsdb.current_session["WindowTitle"]} window not found"
+                self.status_bar.showMessage(msg, 5000)
+                raise SelectionError(msg)  # noqa: TRY301
+
             self.set_window(self.window_select.currentIndex())
-        except Exception as e:
+        except SelectionError as e:
             print(e)
         finally:
             self.app_select.currentIndexChanged.connect(self.set_app)
@@ -616,7 +622,7 @@ class MainWindow(QMainWindow):
         try:
             screenshot.win = self.windows[index]
             sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index]["kCGWindowName"]
-        except Exception as e:
+        except (KeyError, IndexError) as e:
             # import traceback
             # traceback.print_exc()
             print(e)
@@ -662,12 +668,6 @@ class MainWindow(QMainWindow):
             screenshot.screenshot_manager.join()
             screenshot.screenshot_manager = None
 
-    def getAudio(self) -> None:
-        if self.av_monitoring:
-            pass
-        else:
-            ut.recordHotKeyAudio()
-
     @Slot(str)
     def openAlertDialog(self, txt: str) -> None:
         alert = AlertDialog(txt)
@@ -697,16 +697,11 @@ class MainWindow(QMainWindow):
         if self.player_state.playing:
             self.play_button.setText("Play")
             self.player.stop()
-            # self.player.terminate()
-            # self.player_state.playing = False
         else:
             self.play_button.setText("Pause")
             self.player_state.total_intervals = len(audio.buffer)
             self.player = Player_Worker(self.player_state)
-            # self.threadpool.start(self.player)
-            # self.player = Process(target=play_process, args=(audio.buffer,))
             self.player.start()
-            # self.player_state.playing = True
 
     def slider_pressed(self) -> None:
         self.player_state.signals.cursor_update.disconnect(self.updateSlider)
@@ -715,15 +710,11 @@ class MainWindow(QMainWindow):
         if not self.player_state.playing:
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
         else:
-            # self.player_state.playing = False
             self.player.stop()
             self.player.join()
             # self.play_button.setText("Play")
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
-            # self.player_state.playing = True
-            # sleep(0.1)
             self.player = Player_Worker(self.player_state)
-            # self.threadpool.start(self.player)
             self.player.start()
         self.player_state.signals.cursor_update.connect(self.updateSlider)
 
@@ -736,7 +727,7 @@ class MainWindow(QMainWindow):
         if not self.lines_shown:
             self.lines_shown = True
             self.listwidget.show()
-            self.show_lines_label.setText("∨ Hide Lines")
+            self.show_lines_label.setText("∨ Hide Lines")  # noqa: RUF001
             height = self.with_lines_height or self.minimumSizeHint().height() + 200
             self.resize(self.width(), height)
         else:
@@ -762,7 +753,7 @@ def update_all_dbs() -> None:
 
 
 def main() -> None:
-    createAggregateDevice()
+    aggr_id, tap_id = createAggregateDevice()
     # ut.hotkeys.start()
     # ut.hotkeys.wait()
     app = QApplication(sys.argv)
@@ -773,7 +764,8 @@ def main() -> None:
         window.raise_()
     app.exec()
     # ut.hotkeys.stop()
-    destroyAggregateDevice()
+    if aggr_id is not None:
+        destroyAggregateDevice(aggr_id, tap_id)
 
     if audio.record_audio_buffer:
         audio.record_audio_buffer.stop_recording()

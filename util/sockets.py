@@ -10,7 +10,7 @@ from PySide6.QtCore import Signal, QObject
 
 from util.screenshot import _take_screenshot
 from util.database import GeneralSettings, linedb
-import util.audio as audio
+from util import audio
 
 ws_server = None
 selected_line = {"line": None, "next": None, "substring_idx": None}
@@ -18,10 +18,13 @@ selected_line = {"line": None, "next": None, "substring_idx": None}
 
 class SocketsSignals(QObject):
     """
+    Signals to communicate with main window.
+
     State: 0 - stoppede,
            1 - started but not connected,
            2 - connected
     """
+
     ws_state = Signal(int)
     listener_state = Signal(str, int)
     line_received = Signal(object)
@@ -126,7 +129,6 @@ class WebsocketManagerThread(threading.Thread):
                 self.unsent_text.clear()
             async for message in websocket:
                 print(message)
-                pass
         except websockets.exceptions.ConnectionClosedError:
             pass
         finally:
@@ -138,7 +140,7 @@ class WebsocketManagerThread(threading.Thread):
             while True:
                 try:
                     async with websockets.serve(self.msg_handler,
-                                                "0.0.0.0",
+                                                "127.0.0.1",
                                                 self.ws_port):
                         socket_signals.ws_state.emit(1)
                         self.main_task = asyncio.create_task(self.send_to_texthooker())
@@ -171,9 +173,9 @@ class WebsocketManagerThread(threading.Thread):
         socket_signals.listener_state.emit(url, 1)
         while True:
             try:
-                ws_url = f'ws://{url}'
+                ws_url = f"ws://{url}"
                 if is_Luna:
-                    ws_url = f'ws://{url}/api/ws/text/origin'
+                    ws_url = f"ws://{url}/api/ws/text/origin"
                 async with websockets.connect(ws_url, ping_interval=None) as websocket:
                     socket_signals.listener_state.emit(url, 2)
                     while True:

@@ -33,8 +33,8 @@ from util.database import settings
 
 
 def clear_layout(layout):
-
-    for widget_no in range(0, layout.count()):
+    """Remove all widgets and layouts contained in the input of the function."""
+    for widget_no in range(layout.count()):
         if layout.itemAt(widget_no) is not None:
             if "Layout" not in str(layout.itemAt(widget_no)):
                 layout.itemAt(widget_no).widget().deleteLater()
@@ -55,7 +55,7 @@ class AnkiPage(QWidget):
 
     settings_widgets = {}
 
-    def __init__(self):
+    def __init__(self):  # noqa: PLR0915
         super().__init__()
 
         # self.setStyleSheet("""
@@ -162,7 +162,7 @@ class AnkiPage(QWidget):
 
             tmp_tool_button.setText("-")
             tmp_tool_button.setMinimumSize(QSize(23, 22))
-            tmp_tool_button.clicked.connect(lambda: self.remove_note(note))
+            tmp_tool_button.clicked.connect(lambda note=note: self.remove_note(note))
 
             self.note_types[note] = [tmp_line_edit, tmp_tool_button]
 

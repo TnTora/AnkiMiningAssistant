@@ -47,6 +47,8 @@ class AudioSettings:
     mic = None
     resume_on_detected_voice = False
     continuous_recording = False
+    vad_threshold = 0.5
+    pause_threshold = 10
 
 
 class ImageSettings:
@@ -96,11 +98,12 @@ class Settings:
                 for section, class_ in get_attributes(self):
                     if not inspect.isclass(class_):
                         continue
-                    for option, value in get_attributes(class_):
-                        value_type = type(value).__name__
+                    for option, _value in get_attributes(class_):
+                        value_type = type(_value).__name__
+                        value = _value
                         if value_type == "timedelta":
                             value = value.total_seconds()
-                        if value_type == "list" or value_type == "dict":
+                        if value_type in ["list", "dict"]:
                             value = json.dumps(value)
                         conn.execute("""
                             INSERT INTO settings (section, option, type, value)
@@ -115,14 +118,14 @@ class Settings:
         old_value = getattr(section_class, option)
         if isinstance(old_value, timedelta) and isinstance(new_value, (int, float)):
             setattr(section_class, option, timedelta(seconds=new_value))
-        elif (type(old_value) is not type(None)) and (type(old_value) is not type(new_value)):
+        elif (old_value is not None) and (type(old_value) is not type(new_value)):
             return
         else:
             setattr(section_class, option, new_value)
 
         if value_type == "timedelta":
             new_value = new_value.total_seconds()
-        if value_type == "list" or value_type == "dict":
+        if value_type in ["list", "dict"]:
             new_value = json.dumps(new_value)
 
         with closing(sqlite3.connect(self.path)) as conn:
@@ -137,14 +140,15 @@ class Settings:
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 fetch = conn.execute("SELECT section, option, type, value FROM settings")
-                for section, option, value_type, value in fetch:
+                for section, option, value_type, _value in fetch:
                     section_class = getattr(self, section)
+                    value = _value
                     if value_type == "bool":
-                        value = bool(value)
+                        value = bool(_value)
                     if value_type == "timedelta":
-                        value = timedelta(seconds=value)
-                    if value_type == "list" or value_type == "dict":
-                        value = json.loads(value)
+                        value = timedelta(seconds=_value)
+                    if value_type in ["list", "dict"]:
+                        value = json.loads(_value)
                     setattr(section_class, option, value)
                     # print(f"section: {section_class}, option: {option}, value_type: {value_type}, value: {value}")
 
@@ -229,6 +233,7 @@ class AudioDB:
                 for interval in buffer:
                     if interval.timestamp <= self.last_loaded_timestamp:
                         continue
+                    # print(f"self.last_loaded_timestamp: {self.last_loaded_timestamp}; interval.timestamp: {interval.timestamp}")
 
                     temp_audio = BytesIO()
 
@@ -263,47 +268,6 @@ class AudioDB:
                         VALUES (?, ?);
                     """, (start, end))
 
-    def store_buffer(self, buffer):
-        with closing(sqlite3.connect(self.path)) as conn:
-            with conn:
-
-                conn.execute("DELETE FROM audio;")
-                conn.execute("DELETE FROM inactive_intervals;")
-
-                temp_audio = BytesIO()
-
-                audio_format = "WAV"
-                if "MP3" in sf.available_formats():
-                    audio_format = "MP3"
-
-                with sf.SoundFile(temp_audio, mode="w", format=audio_format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
-                    f.write(buffer.data)
-
-                conn.execute("""
-                    INSERT INTO audio (type, data)
-                    VALUES (?, ?);
-                """, ("full", temp_audio.getbuffer()))
-
-                for interval in buffer:
-                    conn.execute("""
-                        INSERT INTO audio (type, vad)
-                        VALUES (?, ?);
-                    """, ("vad", interval.vad))
-
-                for interval in buffer.inactive_intervals:
-                    start = interval.start_time.timestamp()
-                    # end = interval.end_time if not interval.end_time else interval.end_time.timestamp()
-
-                    try:
-                        end = interval.end_time.timestamp()
-                    except AttributeError:
-                        end = None
-
-                    conn.execute("""
-                        INSERT INTO inactive_intervals (start, end)
-                        VALUES (?, ?);
-                    """, (start, end))
-
     def load_buffer_intervals(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
@@ -313,33 +277,13 @@ class AudioDB:
                     ORDER BY timestamp ASC;
                 """):
                     self.last_loaded_timestamp = timestamp
-                    interval_data, sr = sf.read(BytesIO(data))
+                    interval_data, _ = sf.read(BytesIO(data))
                     yield interval_data, vad, timestamp
-
-    def load_buffer_data(self):
-        with closing(sqlite3.connect(self.path)) as conn:
-            with conn:
-                for data in conn.execute("SELECT data FROM audio WHERE type = 'full';"):
-                    full_buffer, sr = sf.read(BytesIO(data[0]))
-                    # intervals = np.split(full_buffer, full_buffer.shape[0]/int(sr*AudioSettings.interval_duration), axis=0)
-                    chunk_size = int(sr*AudioSettings.interval_duration)
-                    for i in range(0, full_buffer.shape[0], chunk_size):
-                        yield full_buffer[i:i+chunk_size]
-
-    def load_vad(self):
-        with closing(sqlite3.connect(self.path)) as conn:
-            with conn:
-                for vad in conn.execute("SELECT vad FROM audio WHERE type = 'vad';"):
-                    yield vad[0]
-
-    def load_buffer(self):
-        return zip(self.load_buffer_data(), self.load_vad())
 
     def load_inactive_intervals(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for interval in conn.execute("SELECT start, end FROM inactive_intervals;"):
-                    yield interval
+                yield from conn.execute("SELECT start, end FROM inactive_intervals;")
 
 
 class LineDB:
@@ -370,8 +314,7 @@ class LineDB:
     def load_lines(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for data in conn.execute("SELECT text, time FROM lines ORDER BY time ASC"):
-                    yield data
+                yield from conn.execute("SELECT text, time FROM lines ORDER BY time ASC")
 
 
 class SessionDB:
@@ -421,7 +364,6 @@ class SessionDB:
                     """, {"name": name} | self.sessions_dict[name])
 
     def load_sessions(self):
-        # sessions_dict = {}
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 for name, a_name, w_title, c_rec, a_up, open_gui, preview_note in conn.execute("""
@@ -435,7 +377,6 @@ class SessionDB:
                         "open_in_browser": open_gui,
                         "preview_note": preview_note
                     }
-        # return self.sessions_dict
 
 
 settings = Settings("database.db")

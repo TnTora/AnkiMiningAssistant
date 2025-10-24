@@ -6,7 +6,7 @@ from PySide6.QtCore import (
     Signal,
 )
 
-import util.audio as audio
+from util import audio
 from util.database import settings
 
 
@@ -37,9 +37,10 @@ class Player_Worker(Thread):
 
     blocksize = 400
 
-    def __init__(self, player_state: PlayerState):
+    def __init__(self, player_state: PlayerState, audio_buffer: audio.AudioBuffer | None = None):
         super().__init__()
         self.player_state = player_state
+        self.buffer = audio_buffer or audio.buffer
         self.stop_event = Event()
 
     def stop(self):
@@ -52,13 +53,9 @@ class Player_Worker(Thread):
             self.player_state.setCursor(0)
 
         with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=self.blocksize) as sp:
-            # for interval in audio.buffer.slice_(start_idx=self.player_state.cursor):
-            #     if self.stop_event.is_set() or not self.player_state.playing:
-            #         break
-            #     sp.play(interval.data)
-            #     self.player_state.advanceCursor()
 
-            for block, interval_idx in audio.buffer.get_data_in_blocks(
+            for block, interval_idx in audio.AudioBuffer.get_data_in_blocks(
+                    self.buffer,
                     self.blocksize,
                     starting_idx=self.player_state.cursor
             ):

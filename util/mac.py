@@ -23,19 +23,16 @@ usage:
 err, winID = _AXUIElementGetWindow(window, None)
 """
 
-import objc
-bundle = objc.loadBundle("ApplicationServices", bundle_path="/System/Library/Frameworks/ApplicationServices.framework", module_globals=globals())
-functions = [("_AXUIElementGetWindow", objc._C_INT+b'^{__AXUIElement=}'+objc._C_OUT+objc._C_PTR+objc._C_UINT)]
-try:
-    objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
-    usePrivateAPI = True
-except objc.error as e:
-    usePrivateAPI = False
-    print(e)
-
-# app_info = NSBundle.mainBundle().infoDictionary()
-# app_info["LSBackgroundOnly"] = "1"  # suppress python macOS dock icon pop up/bounce but windows cannot be focused
-
+# import objc
+# bundle = objc.loadBundle("ApplicationServices", bundle_path="/System/Library/Frameworks/ApplicationServices.framework", module_globals=globals())
+# functions = [("_AXUIElementGetWindow", objc._C_INT+b'^{__AXUIElement=}'+objc._C_OUT+objc._C_PTR+objc._C_UINT)]
+# try:
+#     objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
+#     usePrivateAPI = True
+# except objc.error as e:
+#     usePrivateAPI = False
+#     print(e)
+usePrivateAPI = False
 
 runLoop = NSRunLoop.currentRunLoop()
 
@@ -64,10 +61,7 @@ def getAppWindows(app):
             if bounds["Height"] == 0 or bounds["Width"] == 0:
                 return False
             title = x["kCGWindowName"]
-            if title:
-                return True
-            else:
-                return False
+            return bool(title)
         except KeyError:
             return False
 
@@ -87,11 +81,11 @@ def getAppAXWindows(app):
 def getAXWindowBounds(ax_win):
     pos = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXPositionAttribute, None)[1]
     if pos is None:
-        return
+        return None
     pos_value = ApplicationServices.AXValueGetValue(pos, ApplicationServices.kAXValueCGPointType, None)[1]
     size = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXSizeAttribute, None)[1]
     if size is None:
-        return
+        return None
     size_value = ApplicationServices.AXValueGetValue(size, ApplicationServices.kAXValueCGSizeType, None)[1]
     bounds = {
         "Height": int(size_value.height),
@@ -105,8 +99,9 @@ def getAXWindowBounds(ax_win):
 def getAXWindowFromWindowInfo(AXWindowsList, win):
     for ax_win in AXWindowsList:
         if usePrivateAPI:
-            err, winID = _AXUIElementGetWindow(ax_win, None)  # noqa
-            if win["kCGWindowNumber"] == winID:
+            err, winID = _AXUIElementGetWindow(ax_win, None)
+
+            if not err and win["kCGWindowNumber"] == winID:
                 print("AXWindow found by private API")
                 return ax_win
 
@@ -163,7 +158,7 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win=None, format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
+    def capture_screenshot(save_path: str | None = None, win=None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -220,7 +215,7 @@ try:
             print(f"image size: {len(data)}")
             file_data = BytesIO(data)
             with Image.open(file_data) as img:
-                img.save(container, format=format)
+                img.save(container, format=img_format)
 
             finish.set()
 

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import util.audio as audio
+from util import audio
 from util.database import settings
 
 
@@ -29,7 +29,7 @@ class AudioBar(QWidget):
     player_cursor_updated = Signal(int)
     zoom_changed = Signal(int)
 
-    def __init__(self, h, audio_data=None, start_interval=None, end_interval=None, scroll_zoom=False):
+    def __init__(self, h, audio_data=None, start_interval=None, end_interval=None, *, scroll_zoom=False):
         super().__init__()
         # zoom from 1 to 32
         self.zoom: int = 3
@@ -60,8 +60,10 @@ class AudioBar(QWidget):
 
     def calculate_intervals(self):
         """
+        Calculate intervals to draw.
+
         Merge audio intervals based on zoom attribute and calculate
-        their respective rms
+        their respective rms.
         """
         self.intervals_rms_vad = []
         self.peak = 0
@@ -70,7 +72,7 @@ class AudioBar(QWidget):
         i = 0
         for interval in self.audio_data:
             tmp_interval = np.append(tmp_interval, interval.data, axis=0)
-            tmp_vad = tmp_vad or interval.vad > 0.5
+            tmp_vad = tmp_vad or interval.vad > settings.audio.vad_threshold
 
             i += 1
             if i % self.zoom != 0:
@@ -79,8 +81,7 @@ class AudioBar(QWidget):
             rms = np.max(calculate_rms(tmp_interval))
             self.intervals_rms_vad.append((rms, tmp_vad))
 
-            if rms > self.peak:
-                self.peak = rms
+            self.peak = max(self.peak, rms)
 
             tmp_interval = np.empty((0, audio.buffer.channels))
             tmp_vad = False
@@ -101,14 +102,13 @@ class AudioBar(QWidget):
         self.calculate_intervals()
         self.update()
 
-    def setPlayable(self, playable: bool) -> None:
-        """Display player cursor"""
+    def setPlayable(self, playable: bool) -> None:  # noqa: FBT001
+        """Display player cursor."""
         self.playable = playable
-        if self.player_cursor < 0:
-            self.player_cursor = 0
+        self.player_cursor = max(self.player_cursor, 0)
 
     def setPlayerCursor(self, cursor: int) -> None:
-        """Set cursor to a specific interval"""
+        """Set cursor to a specific interval."""
         min_interval = self.left_handle or 0
         max_interval = self.right_handle or self.total_intervals
 
@@ -141,11 +141,11 @@ class AudioBar(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         pos_x = event.pos().x()
-        if abs(pos_x - self.player_cursor_x) < 5:
+        if abs(pos_x - self.player_cursor_x) < 5:  # noqa: PLR2004
             self.handle_pressed = "player"
-        elif abs(pos_x - self.left_handle_x) < 10:
+        elif abs(pos_x - self.left_handle_x) < 10:  # noqa: PLR2004
             self.handle_pressed = "left"
-        elif abs(pos_x - self.right_handle_x) < 10:
+        elif abs(pos_x - self.right_handle_x) < 10:  # noqa: PLR2004
             self.handle_pressed = "right"
         elif self.left_handle_x < pos_x < self.right_handle_x:
             self.handle_pressed = "selection"
@@ -227,7 +227,7 @@ class AudioBar(QWidget):
     wheel_step = 0
 
     def wheelEvent_(self, event) -> None:
-        if abs(event.angleDelta().x()) > 2:
+        if abs(event.angleDelta().x()) > 2:  # noqa: PLR2004
             self.wheel_step = 0
             event.ignore()
             return
@@ -363,13 +363,14 @@ class AudioBar(QWidget):
 
         one_sec_interval_px = 5/(settings.audio.interval_duration*self.zoom)
 
-        if self.zoom < 5:
+        # TODO: Move zoom sections to a function / dict
+        if self.zoom < 5:  # noqa: PLR2004
             main_unit = 1
             sub_unit = 0.1
-        elif self.zoom < 10:
+        elif self.zoom < 10:  # noqa: PLR2004
             main_unit = 2
             sub_unit = 0.4
-        elif self.zoom < 25:
+        elif self.zoom < 25:  # noqa: PLR2004
             main_unit = 2
             sub_unit = 1
         else:
@@ -389,7 +390,7 @@ class AudioBar(QWidget):
 
         while current_px < end_px:
             # print(f"current_px: {current_px},   (current_px-2) % main_unit_px: {(current_px-2) % main_unit_px};")
-            if abs((current_px-2) % main_unit_px) < 0.01:
+            if abs((current_px-2) % main_unit_px) < 0.01:  # noqa: PLR2004
                 painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 10))
             else:
                 painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 5))

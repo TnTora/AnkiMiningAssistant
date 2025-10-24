@@ -20,16 +20,6 @@ from PIL import WebPImagePlugin
 from util.database import settings
 
 
-def clear_layout(layout):
-
-    for widget_no in range(0, layout.count()):
-        if layout.itemAt(widget_no) is not None:
-            if "Layout" not in str(layout.itemAt(widget_no)):
-                layout.itemAt(widget_no).widget().deleteLater()
-            else:
-                clear_layout(layout.itemAt(widget_no))
-
-
 class ImagePage(QWidget):
 
     label_style = "font-size:13pt;"
@@ -43,7 +33,7 @@ class ImagePage(QWidget):
 
     settings_widgets = {}
 
-    def __init__(self):
+    def __init__(self):  # noqa: PLR0915
         super().__init__()
 
         self.capture_interval_label = QLabel("Capture Interval")

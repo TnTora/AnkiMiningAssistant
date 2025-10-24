@@ -5,13 +5,13 @@ import numpy as np
 import soundcard as sc
 import soundfile as sf
 from silero_vad import load_silero_vad
-from time import sleep, time
+from time import time
 from datetime import datetime, timedelta
 from util.AggregateDevice import isloopback
 from collections import deque
 from itertools import islice
 
-import util.screenshot as screenshot
+from util import screenshot
 from util.database import audiodb, AudioSettings, GeneralSettings
 
 monitoringAudio = None
@@ -30,6 +30,7 @@ class AudioInterval:
         self.data = data
         self.vad = vad
         self.timestamp = timestamp or time()
+        # print(f"created self.timestamp: {self.timestamp}")
 
 
 class InactiveInterval:
@@ -46,12 +47,13 @@ class AudioBuffer:
     inactive = True
     total_offset = timedelta(seconds=0)
 
-    def __init__(self, channels=2, max_time=None, is_primary=False):
-        max_time = max_time or AudioBuffer.storage_time_limit.total_seconds()
-        max_intervals = int(max_time // AudioSettings.interval_duration)+1
+    def __init__(self, channels=2, max_time=None, *, is_primary=False):
+        self.max_time = max_time or AudioBuffer.storage_time_limit.total_seconds()
+        max_intervals = int(self.max_time // AudioSettings.interval_duration)+1
         self.deque = deque(maxlen=max_intervals)
         self.channels = channels
-        if is_primary:
+        self.is_primary = is_primary
+        if self.is_primary:
             self.load_from_db()
 
     def load_from_db(self):
@@ -83,7 +85,6 @@ class AudioBuffer:
     def __len__(self):
         return self.deque.__len__()
 
-    @property
     def data(self, start_idx=0, end_idx=None):
         end_idx = end_idx or len(self.deque)
 
@@ -94,11 +95,12 @@ class AudioBuffer:
 
         return data
 
-    def get_data_in_blocks(self, blocksize: int, starting_idx: int = 0):
-        leftover_array = np.empty((0, self.channels))
+    @staticmethod
+    def get_data_in_blocks(audio_buffer, blocksize: int, starting_idx: int = 0):
+        leftover_array = np.empty((0, audio_buffer.channels))
         interval_idx = starting_idx
 
-        for interval in self.slice_(start_idx=starting_idx):
+        for interval in audio_buffer.slice_(start_idx=starting_idx):
             start_idx = blocksize-len(leftover_array)
             leftover_array = np.append(leftover_array, interval.data[0:start_idx], axis=0)
             result, remainder = divmod(len(interval.data)-start_idx, blocksize)
@@ -114,13 +116,22 @@ class AudioBuffer:
 
             if remainder > 0:
                 leftover_array = interval.data[end_idx:]
-                if interval_idx == len(self):
+                if interval_idx == len(audio_buffer):
                     yield leftover_array, interval_idx
             else:
-                leftover_array = np.empty((0, self.channels))
+                leftover_array = np.empty((0, audio_buffer.channels))
 
     def slice_(self, start_idx=None, end_idx=None, step=None):
         return islice(self.deque, start_idx, end_idx, step)
+
+    def copy_slice(self, start_idx=None, end_idx=None, step=None, *, deque_to_list=False):
+        buffer_copy = AudioBuffer(channels=self.channels, max_time=self.max_time, is_primary=False)
+        if deque_to_list:
+            # TODO: Test performance vs indexing deque in manual_update_note
+            buffer_copy.deque = list(self.slice_(start_idx, end_idx, step))
+        else:
+            buffer_copy.deque = deque(self.slice_(start_idx, end_idx, step))
+        return buffer_copy
 
     @classmethod
     def get_total_offset(cls):
@@ -198,14 +209,14 @@ class AudioBuffer:
 
         if curr_time - line_time - AudioBuffer.total_offset > AudioBuffer.storage_time_limit:
             print("Outside Buffer scope")
-            return
+            return None
 
-        data_copy = list(self.slice_())
+        data_copy = self.copy_slice()
 
         if next_line_time:
             line_audio_length = next_line_time - line_time
         else:
-            line_end = len(self.deque)
+            line_end = len(data_copy)
 
         timing_adjustment = AudioBuffer.get_timing_adjustment(curr_time, line_time)
 
@@ -217,9 +228,9 @@ class AudioBuffer:
         last_active_interval = line_end
 
         j = line_start + 1
-        for i in islice(data_copy, line_start+1, line_end):
+        for i in islice(data_copy.deque, line_start+1, line_end):
             j += 1
-            if i.vad > 0.5:
+            if i.vad > AudioSettings.vad_threshold:
                 last_active_interval = j
 
         padding = 10
@@ -228,11 +239,11 @@ class AudioBuffer:
 
         if save_path:
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
-                for interval in islice(data_copy, line_start, line_end):
+                for interval in islice(data_copy.deque, line_start, line_end):
                     f.write(interval.data)
             return save_path
-        else:
-            return data_copy, line_start, line_end
+
+        return data_copy, line_start, line_end
 
 
 def get_mics():
@@ -247,30 +258,7 @@ def get_mics():
             return mikes, i
     if loopbacks:
         return mikes, loopbacks[0]
-    else:
-        return mikes, None
-
-
-def recordAudio(filepath):
-    global recording
-    data = None
-    try:
-        recording = threading.Event()
-        with mic.recorder(samplerate=AudioSettings.samplerate) as r:
-            while True:
-                _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
-                if data is None:
-                    data = _data
-                else:
-                    data = np.concatenate((data, _data))
-                if recording.is_set():
-                    recording = None
-                    break
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("Saving audio file")
-        sf.write(file=filepath, data=data, samplerate=AudioSettings.samplerate)
+    return mikes, None
 
 
 class recordAudioBuffer(threading.Thread):
@@ -286,58 +274,54 @@ class recordAudioBuffer(threading.Thread):
     def resume_recording(self):
         self.resume_rec.set()
 
-    def run(self):
-        try:
-            PAUSE = 0
-            AudioBuffer.resume()
-            with mic.recorder(samplerate=AudioSettings.samplerate) as r:
-                while True:
+    def run(self):  # noqa: C901
+        PAUSE = 0
+        AudioBuffer.resume()
+        with mic.recorder(samplerate=AudioSettings.samplerate) as r:
+            while True:
 
-                    if self.stop_rec.is_set():
-                        AudioBuffer.pause()
-                        break
+                if self.stop_rec.is_set():
+                    AudioBuffer.pause()
+                    break
 
-                    if self.resume_rec.is_set():
-                        PAUSE = 0
-                        for interval in secondary_buffer:
-                            buffer.deque.append(interval)
-                        AudioBuffer.resume(offset=len(secondary_buffer)*AudioSettings.interval_duration)
-                        self.resume_rec = threading.Event()
-                        print("resuming")
+                if self.resume_rec.is_set():
+                    PAUSE = 0
+                    for interval in secondary_buffer:
+                        # print(f"appending interval: {interval.timestamp}")
+                        buffer.deque.append(interval)
+                    AudioBuffer.resume(offset=len(secondary_buffer)*AudioSettings.interval_duration)
+                    self.resume_rec = threading.Event()
+                    print("resuming")
 
-                    _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
+                _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
 
-                    data_tensor = torch.from_numpy(_data).reshape((2, -1))
+                data_tensor = torch.from_numpy(_data).reshape((2, -1))
 
-                    if data_tensor.size(0) > 1:
-                        data_tensor = data_tensor.mean(dim=0, keepdim=True)
+                if data_tensor.size(0) > 1:
+                    data_tensor = data_tensor.mean(dim=0, keepdim=True)
 
-                    if AudioSettings.samplerate != 16000:
-                        data_tensor = resampler(data_tensor)
+                if AudioSettings.samplerate != 16000:  # noqa: PLR2004
+                    data_tensor = resampler(data_tensor)
 
-                    speech_prob = model(data_tensor, 16000).item()
-                    # print(f"prob: {speech_prob};    PAUSE: {PAUSE}")
+                speech_prob = model(data_tensor, 16000).item()
 
-                    if speech_prob < 0.5:
-                        PAUSE += AudioSettings.interval_duration
-                    else:
-                        PAUSE = 0
-                        if AudioBuffer.inactive and AudioSettings.resume_on_detected_voice:
-                            AudioBuffer.resume()
+                if speech_prob < AudioSettings.vad_threshold and not AudioBuffer.inactive:
+                    PAUSE += AudioSettings.interval_duration
+                else:
+                    PAUSE = 0
+                    if AudioBuffer.inactive and AudioSettings.resume_on_detected_voice:
+                        AudioBuffer.resume()
 
-                    if AudioBuffer.inactive:
-                        secondary_buffer.update(_data, speech_prob)
-                        sleep(min(AudioSettings.interval_duration, 0.05))
-                        continue
+                # print(f"prob: {speech_prob};    PAUSE: {PAUSE}; {datetime.now().strftime('%H_%M_%S')}")
 
-                    if PAUSE > 10 and not AudioSettings.continuous_recording:
-                        print("pausing")
-                        AudioBuffer.pause()
-                        continue
+                if AudioBuffer.inactive:
+                    secondary_buffer.update(_data, speech_prob)
+                    continue
 
-                    buffer.update(_data, speech_prob)
+                if AudioSettings.pause_threshold < PAUSE and not AudioSettings.continuous_recording:
+                    print("pausing")
+                    secondary_buffer.deque.clear()
+                    AudioBuffer.pause()
+                    continue
 
-        except KeyboardInterrupt:
-            pass
-        # finally:
-        #     sf.write(file="audiobuffer.mp3", data=buffer.data, samplerate=AudioSettings.samplerate)
+                buffer.update(_data, speech_prob)

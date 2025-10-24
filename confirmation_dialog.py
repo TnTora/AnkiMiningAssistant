@@ -1,9 +1,16 @@
-from typing import Iterable
+from collections.abc import Iterable
 from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QListWidget,
@@ -28,6 +35,7 @@ from audio_bar import AudioBar
 
 from player import Player_Worker, PlayerState
 from util.screenshot import ImageStored
+from util.audio import AudioBuffer
 
 
 class AlertDialog(QDialog):
@@ -97,7 +105,7 @@ class Thumbnail(QLabel):
 
     clicked = Signal()
 
-    def __init__(self, img_src, w, selectable=False):
+    def __init__(self, img_src, w, *, selectable=False):
         super().__init__()
         # self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.img_pixmap = None
@@ -159,12 +167,12 @@ class Thumbnail(QLabel):
 
 
 class NotePreviewDialog(QDialog):
-    def __init__(
+    def __init__(  # noqa: PLR0915
         self,
         imgs: Iterable[ImageStored] | None = None,
-        audio_data: Iterable | None = None,
+        audio_data: AudioBuffer | None = None,
         audio_range: tuple[int, int] | None = None,
-        sentence: str | None = None
+        sentence: str | None = None,
     ) -> None:
 
         super().__init__()
@@ -278,7 +286,7 @@ class NotePreviewDialog(QDialog):
             self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x), 0, xmargin=self.scroll_audio.width()-100)
 
             self.player_state = PlayerState()
-            self.player = Player_Worker(self.player_state)
+            self.player = Player_Worker(self.player_state, audio_buffer=self.audio_data)
 
             self.play_button = QPushButton("Play")
             self.play_button.clicked.connect(self.playAudio)
@@ -324,21 +332,21 @@ class NotePreviewDialog(QDialog):
         Build Layout
         """
 
-        self.layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout()
         if self.imgs:
-            self.layout.addWidget(self.img_top_label)
-            self.layout.addLayout(self.thumbs_layout)
-            self.layout.addSpacerItem(QSpacerItem(5, 20))
+            self.main_layout.addWidget(self.img_top_label)
+            self.main_layout.addLayout(self.thumbs_layout)
+            self.main_layout.addSpacerItem(QSpacerItem(5, 20))
         if self.audio_data:
-            self.layout.addWidget(self.audio_top_label)
-            self.layout.addWidget(self.scroll_audio)
-            self.layout.addLayout(self.bottom_audio_layout)
-            self.layout.addSpacerItem(QSpacerItem(5, 20))
+            self.main_layout.addWidget(self.audio_top_label)
+            self.main_layout.addWidget(self.scroll_audio)
+            self.main_layout.addLayout(self.bottom_audio_layout)
+            self.main_layout.addSpacerItem(QSpacerItem(5, 20))
         if self.sentence:
-            self.layout.addWidget(self.sentence_top_label)
-            self.layout.addWidget(self.sentence_text_edit)
-        self.layout.addWidget(self.buttonBox)
-        self.setLayout(self.layout)
+            self.main_layout.addWidget(self.sentence_top_label)
+            self.main_layout.addWidget(self.sentence_text_edit)
+        self.main_layout.addWidget(self.buttonBox)
+        self.setLayout(self.main_layout)
 
     def select_img(self, i: int) -> None:
         self.thumbnails[self.selected_img_idx].setSelected(False)
@@ -382,7 +390,7 @@ class NotePreviewDialog(QDialog):
         self.audio_bar.setRange(*self.audio_range)
         self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x)+200, 0)
 
-    def getValues(self) -> None:
+    def getValues(self):
         tmp_img_idx = None
         tmp_interval = None
         tmp_sentence = None
