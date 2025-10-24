@@ -252,9 +252,7 @@ class MainWindow(QMainWindow):
         self.listwidget.addItems([line.text for line in util.sockets.text_stored])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
-        self.listwidget.itemSelectionChanged.connect(
-            lambda: print("selected idxs: ", sorted([a.row() for a in self.listwidget.selectedIndexes()]))
-        )
+        self.listwidget.itemSelectionChanged.connect(self.update_selected_lines)
 
         if not self.lines_shown:
             self.show_lines_label.setText("> Show Lines")
@@ -518,6 +516,11 @@ class MainWindow(QMainWindow):
         settings.general.last_session = new_name
         # print(f"settings.general.last_session: {settings.general.last_session}")
         self.session_name_timer.stop()
+
+    def update_selected_lines(self):
+        tmp_idx = sorted([a.row() for a in self.listwidget.selectedIndexes()])
+        tmp_idx = tuple(tmp_idx)
+        util.sockets.selected_idxs = tmp_idx
 
     def add_session(self) -> None:
         new_session_name = str(datetime.now())

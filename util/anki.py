@@ -191,7 +191,6 @@ def manual_update_note(*, update_img: bool = True, update_audio: bool = True) ->
 
 def search_linesdb(sentence: str):
     found_lines = []
-    substring_idx = None
     found = False
 
     text_copy = copy(util.sockets.text_stored)
@@ -207,7 +206,7 @@ def search_linesdb(sentence: str):
         if substring_idx == -1:
             continue
 
-        found_lines.append({"line": line, "next": None, "substring_idx": substring_idx})
+        found_lines.append({"line": line, "next": None})
         found = True
 
     if not found_lines:
@@ -231,21 +230,20 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
         anki_signals.note_update_info.emit("No note selected")
         return
 
-    # found_lines = []
     next_line_time = None
-    # substring_idx = None
     images = []
     line_audio = None
     line_update = None
-    # found = False
 
     selected_img = None
     update_fields = {}
 
-    # text_copy = copy(util.sockets.text_stored)
     curr_time = datetime.now()
 
-    selected_line = search_linesdb(last_note_sentence_clean)
+    if util.sockets.selected_idxs:
+        selected_line = util.sockets.manual_line_selection(util.sockets.selected_idxs)
+    else:
+        selected_line = search_linesdb(last_note_sentence_clean)
 
     if selected_line is None:
         return
@@ -274,14 +272,12 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
         buffer_copy = None
         audio_interval = None
         if update_audio:
-            # data_, interval (line_start, line_end)
             line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time)
             buffer_copy = line_audio[0]
             audio_interval = line_audio[1:]
 
         line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
 
-        # anki_signals.note_update_confirm.emit(images, line_audio[0], line_audio[1:], line_update)
         anki_signals.note_update_confirm.emit(images, buffer_copy, audio_interval, line_update)
         res = anki_signals.wait_result()
 

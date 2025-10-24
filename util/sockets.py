@@ -13,7 +13,7 @@ from util.database import GeneralSettings, linedb
 from util import audio
 
 ws_server = None
-selected_line = {"line": None, "next": None, "substring_idx": None}
+selected_idxs = ()
 
 
 class SocketsSignals(QObject):
@@ -40,7 +40,7 @@ class LineStored:
         self.time = time or datetime.now()
 
     def __repr__(self) -> str:
-        return f"LineStored [{self.time.strftime(format="%Y-%m-%d_%H-%M-%S")}]"
+        return f"LineStored [{self.time.strftime(format="%Y-%m-%d_%H-%M-%S")}| {self.text}]"
 
 
 class LinesTempStorage:
@@ -82,6 +82,19 @@ class LinesTempStorage:
 
 text_received = None
 text_stored = LinesTempStorage()
+
+
+def manual_line_selection(idxs: tuple | list) -> dict:
+    text_copy = list(text_stored.deque)
+    tmp_line = LineStored(text="", time=datetime.now())
+    for i in idxs:
+        curr_line = text_copy[i]
+        tmp_line.text += " " + curr_line.text
+        tmp_line.time = min(tmp_line.time, curr_line.time)
+    selected_line = {"line": tmp_line, "next": None}
+    if len(text_copy) > idxs[-1]+1:
+        selected_line["next"] = text_copy[idxs[-1]+1]
+    return selected_line
 
 
 class WebsocketManagerThread(threading.Thread):
