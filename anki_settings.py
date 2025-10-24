@@ -32,14 +32,15 @@ from util.anki import (
 from util.database import settings
 
 
+# https://gist.githubusercontent.com/JokerMartini/7fe4f204b6a7912be3ac/raw/e2d6e7aa285c0326334a96244b3a2b21f9d5d3a9/Remove%2520Items%2520From%2520Layout%2520%257C%2520.py
 def clear_layout(layout):
     """Remove all widgets and layouts contained in the input of the function."""
-    for widget_no in range(layout.count()):
-        if layout.itemAt(widget_no) is not None:
-            if "Layout" not in str(layout.itemAt(widget_no)):
-                layout.itemAt(widget_no).widget().deleteLater()
-            else:
-                clear_layout(layout.itemAt(widget_no))
+    for x in reversed(range(layout.count())):
+        widget = layout.takeAt(x).widget()
+        if widget is not None:
+            widget.deleteLater()
+        else:
+            clear_layout(layout.takeAt(x).layout())
 
 
 class AnkiPage(QWidget):
@@ -162,7 +163,7 @@ class AnkiPage(QWidget):
 
             tmp_tool_button.setText("-")
             tmp_tool_button.setMinimumSize(QSize(23, 22))
-            tmp_tool_button.clicked.connect(lambda note=note: self.remove_note(note))
+            tmp_tool_button.clicked.connect(lambda e, note=note: self.remove_note(note))
 
             self.note_types[note] = [tmp_line_edit, tmp_tool_button]
 
