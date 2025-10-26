@@ -23,18 +23,83 @@ usage:
 err, winID = _AXUIElementGetWindow(window, None)
 """
 
-# import objc
-# bundle = objc.loadBundle("ApplicationServices", bundle_path="/System/Library/Frameworks/ApplicationServices.framework", module_globals=globals())
-# functions = [("_AXUIElementGetWindow", objc._C_INT+b'^{__AXUIElement=}'+objc._C_OUT+objc._C_PTR+objc._C_UINT)]
-# try:
-#     objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
-#     usePrivateAPI = True
-# except objc.error as e:
-#     usePrivateAPI = False
-#     print(e)
-usePrivateAPI = False
+try:
+    import objc
+    bundle = objc.loadBundle("ApplicationServices",
+        bundle_path="/System/Library/Frameworks/ApplicationServices.framework",
+        module_globals=globals(),
+        scan_classes=False,
+    )
+    functions = [("_AXUIElementGetWindow", objc._C_INT+b"^{__AXUIElement=}"+objc._C_OUT+objc._C_PTR+objc._C_UINT)]  # noqa: SLF001
+
+    objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
+    usePrivateAPI = True
+except objc.error as e:
+    usePrivateAPI = False
+    print(e)
 
 runLoop = NSRunLoop.currentRunLoop()
+
+
+class MacOSError(Exception):
+    """Raised for error specific to MacOS."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+
+class Window:
+
+    def __init__(self, ax_win, parent_app, title):
+        self.ax_win = ax_win
+        self.parent_app = parent_app
+        self.title = title
+        self.CGWindowID = self.get_CGWindowID()
+    def __repr__(self):
+        return f"MacOSWindow: [id={self.CGWindowID}, parent={self.parent_app.localizedName()}, title={self.title}]"
+
+    def get_title(self):
+        err, title = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXTitleAttribute, None)
+        if err:
+            msg = f"Failed to get 'AXTitle' with error code: {err}"
+            raise MacOSError(msg)
+        return title
+
+    @property
+    def bounds(self):
+        pos = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXPositionAttribute, None)[1]
+        pos_value = ApplicationServices.AXValueGetValue(pos, ApplicationServices.kAXValueCGPointType, None)[1]
+        size = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXSizeAttribute, None)[1]
+        size_value = ApplicationServices.AXValueGetValue(size, ApplicationServices.kAXValueCGSizeType, None)[1]
+        bounds = {
+            "Height": size_value.height,
+            "Width": size_value.width,
+            "X": pos_value.x,
+            "Y": pos_value.y,
+        }
+        return bounds
+
+    def get_CGWindowID(self):
+        if usePrivateAPI:
+            err, winID = _AXUIElementGetWindow(self.ax_win, None)
+            if err:
+                return None
+            return winID
+
+        windows = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly,
+            Quartz.kCGNullWindowID,
+        )
+        for win in windows:
+            if win["kCGWindowOwnerPID"] != self.parent_app.processIdentifier():
+                continue
+            if win["kCGWindowName"] != self.title:
+                continue
+            if win["kCGWindowBounds"] != self.bounds:
+                continue
+            return win["kCGWindowNumber"]
+
 
 
 def getAllApps():
@@ -47,7 +112,7 @@ def getAllApps():
     return matches
 
 
-def getAppWindows(app):
+def getAppCGWindows(app):
 
     def conditions(x):
         try:
@@ -73,9 +138,29 @@ def getAppWindows(app):
 
 
 def getAppAXWindows(app):
-    ax_test = ApplicationServices.AXUIElementCreateApplication(app.processIdentifier())
-    win_test = ApplicationServices.AXUIElementCopyAttributeValues(ax_test, ApplicationServices.kAXWindowsAttribute, 0, 99999, None)[1]
-    return win_test
+    ax_app = ApplicationServices.AXUIElementCreateApplication(app.processIdentifier())
+    err, ax_wins = ApplicationServices.AXUIElementCopyAttributeValues(ax_app, ApplicationServices.kAXWindowsAttribute, 0, 99999, None)
+
+    if err:
+        msg = f"Failed to get 'AXWindows' with error code: {err}"
+        # TODO: Log
+        return []
+        # raise MacOSError(msg)
+
+    windows = []
+
+    for ax_win in ax_wins:
+        err, title = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXTitleAttribute, None)
+        if err:
+            # TODO: log
+            continue
+        windows.append(Window(ax_win, app, title))
+    for win in windows:
+        print(win)
+    return windows
+
+
+getAppWindows = getAppAXWindows
 
 
 def getAXWindowBounds(ax_win):
@@ -158,7 +243,7 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win=None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
+    def capture_screenshot(save_path: str | None = None, win: Window | None = None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -166,12 +251,44 @@ try:
         def shareable_content_completion_handler(shareable_content, error):
 
             if error is not None:
-                print(f"err: {error}")
+                finish.set()
                 return
 
             if win:
-                pred = NSPredicate.predicateWithFormat_(f"windowID == {win["kCGWindowNumber"]}")
-                capture_target = shareable_content.windows().filteredArrayUsingPredicate_(pred)[0]
+
+                if win.CGWindowID:
+                    pred_format = f"windowID == {win.CGWindowID}"
+                else:
+                    pred_format =f"(title == '{win.title}') AND (owningApplication.processID == {win.parent_app.processIdentifier()})"
+
+
+                pred = NSPredicate.predicateWithFormat_(pred_format)
+                capture_target_matches = shareable_content.windows().filteredArrayUsingPredicate_(pred)
+                if not capture_target_matches:
+                    # TODO: log and inform the user
+                    finish.set()
+                    return
+
+                capture_target = None
+                if len(capture_target_matches) == 1:
+                    capture_target = capture_target_matches[0]
+                elif len(capture_target_matches) > 1:
+                    bounds = win.bounds
+                    for window_capture in capture_target_matches:
+                        curr_bounds = {
+                            "Height": window_capture.frame().size.height,
+                            "Width": window_capture.frame().size.width,
+                            "X": window_capture.frame().origin.x,
+                            "Y": window_capture.frame().origin.y,
+                        }
+                        if curr_bounds == bounds:
+                            capture_target = window_capture
+                            break
+
+                if capture_target is None:
+                    finish.set()
+                    return
+
                 content_filter = SCContentFilter(desktopIndependentWindow=capture_target)
             else:
                 capture_target = shareable_content.displays()[0]

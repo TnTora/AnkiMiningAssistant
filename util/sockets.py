@@ -20,7 +20,7 @@ class SocketsSignals(QObject):
     """
     Signals to communicate with main window.
 
-    State: 0 - stoppede,
+    State: 0 - stopped,
            1 - started but not connected,
            2 - connected
     """

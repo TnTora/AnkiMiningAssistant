@@ -143,12 +143,17 @@ class MainWindow(QMainWindow):
         self.app_select = QComboBox()
         self.app_select.addItems([a.localizedName() for a in self.apps])
         self.app_select.setCurrentIndex(-1)
-        self.app_select.currentIndexChanged.connect(self.set_app)
+        self.app_select.activated.connect(self.set_app)
 
         self.win_sel_label = QLabel("Window: ")
 
         self.window_select = QComboBox()
-        self.window_select.currentIndexChanged.connect(self.set_window)
+        self.window_select.activated.connect(self.set_window)
+
+        self.apps_windows_timer = QTimer(self)
+        self.apps_windows_timer.setInterval(1000)
+        self.apps_windows_timer.timeout.connect(self.update_apps_windows)
+        self.apps_windows_timer.start()
 
         self.mic_sel_label = QLabel("Mic: ")
 
@@ -522,6 +527,43 @@ class MainWindow(QMainWindow):
         tmp_idx = tuple(tmp_idx)
         util.sockets.selected_idxs = tmp_idx
 
+    def update_apps_windows(self):
+        """Update apps and windows selection QComboBox."""
+        if self.app_select.view().isVisible() or self.window_select.view().isVisible():
+            return
+
+        if self.app_select.currentIndex() < 0:
+            self.apps = getAllApps()
+            self.app_select.clear()
+            self.app_select.addItems([a.localizedName() for a in self.apps])
+            self.app_select.setCurrentIndex(-1)
+        else:
+            curr_text_app = self.app_select.currentText()
+            old_apps = self.apps
+            self.apps = getAllApps()
+            self.app_select.clear()
+            app_names = [a.localizedName() for a in self.apps]
+            self.app_select.addItems(app_names)
+
+            if curr_text_app not in app_names:
+                self.app_select.setCurrentIndex(-1)
+                self.window_select.clear()
+                return
+
+            self.app_select.setCurrentText(curr_text_app)
+
+            curr_text_window = self.window_select.currentText()
+            self.windows = getAppWindows(self.apps[self.app_select.currentIndex()])
+            self.window_select.clear()
+            win_titles = [w.title for w in self.windows]
+            self.window_select.addItems(win_titles)
+            self.window_select.addItem("**No Window Selected**")
+            if curr_text_window not in [*win_titles, "**No Window Selected**"]:
+                self.window_select.setCurrentText("**No Window Selected**")
+                self.set_window(None)
+                return
+            self.window_select.setCurrentText(curr_text_window)
+
     def add_session(self) -> None:
         new_session_name = str(datetime.now())
         sessionsdb.sessions_dict[new_session_name] = {
@@ -556,8 +598,6 @@ class MainWindow(QMainWindow):
         settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
         sessionsdb.current_session = sessionsdb.sessions_dict[settings.general.last_session]
 
-        self.app_select.currentIndexChanged.disconnect(self.set_app)
-        self.window_select.currentIndexChanged.disconnect(self.set_window)
         self.continuous_recording.setChecked(sessionsdb.current_session["continuous_recording"])
         self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
         self.open_in_browser_check.setChecked(sessionsdb.current_session["open_in_browser"])
@@ -596,21 +636,20 @@ class MainWindow(QMainWindow):
             self.window_select.setCurrentIndex(-1)
 
             for i in range(len(self.windows)):
-                if self.windows[i]["kCGWindowName"] == sessionsdb.current_session["WindowTitle"]:
+                if self.windows[i].title == sessionsdb.current_session["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
 
             if self.window_select.currentIndex() < 0:
                 msg = f"{sessionsdb.current_session["WindowTitle"]} window not found"
                 self.status_bar.showMessage(msg, 5000)
+                self.window_select.setCurrentText("**No Window Selected**")
+                self.set_window(None)
                 raise SelectionError(msg)  # noqa: TRY301
 
             self.set_window(self.window_select.currentIndex())
         except SelectionError as e:
             print(e)
-        finally:
-            self.app_select.currentIndexChanged.connect(self.set_app)
-            self.window_select.currentIndexChanged.connect(self.set_window)
 
     def set_app(self, index: int) -> None:
         if index < 0:
@@ -619,13 +658,14 @@ class MainWindow(QMainWindow):
         sessionsdb.sessions_dict[settings.general.last_session]["AppName"] = self.apps[index].localizedName()
         self.windows = getAppWindows(self.apps[index])
         self.window_select.clear()
-        self.window_select.addItems([w["kCGWindowName"] for w in self.windows])
+        self.window_select.addItems([w.title for w in self.windows])
+        self.window_select.addItem("**No Window Selected**")
 
     def set_window(self, index: int) -> None:
         try:
             screenshot.win = self.windows[index]
-            sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index]["kCGWindowName"]
-        except (KeyError, IndexError) as e:
+            sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index].title
+        except (KeyError, IndexError, TypeError) as e:
             # import traceback
             # traceback.print_exc()
             print(e)
