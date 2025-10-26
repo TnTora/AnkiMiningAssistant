@@ -155,8 +155,6 @@ def getAppAXWindows(app):
             # TODO: log
             continue
         windows.append(Window(ax_win, app, title))
-    for win in windows:
-        print(win)
     return windows
 
 
