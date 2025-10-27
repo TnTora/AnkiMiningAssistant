@@ -557,11 +557,14 @@ class MainWindow(QMainWindow):
             # when changing Space if finding windows in all spaces is not possible
             windows_check = getAppWindows(QCoreApplication.applicationPid(), brute_force=False)
             # print(f"windows_check: {windows_check}")
-            curr_win = self.windows[self.app_select.currentIndex()]
-            if not windows_check and not curr_win.found_private:
-                return
+            print(f"self.windows: {self.windows}, idx: {self.window_select.currentIndex()}")
 
             curr_text_window = self.window_select.currentText()
+            found_private = self.windows[self.window_select.currentIndex()].found_private if curr_text_window != "**No Window Selected**" else True
+
+            if not (windows_check or found_private):
+                return
+
             self.windows = getAppWindows(self.apps[self.app_select.currentIndex()])
             self.window_select.clear()
             win_titles = [w.title for w in self.windows]
