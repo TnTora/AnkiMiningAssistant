@@ -1,5 +1,5 @@
 import Quartz
-from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate
+from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate, NSDictionary
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
@@ -56,6 +56,7 @@ try:
     useWindowIdPrivateAPI = True
 except objc.error as e:
     useWindowIdPrivateAPI = False
+    print(f"{useWindowIdPrivateAPI = }")
     print(e)
 
 try:
@@ -65,9 +66,8 @@ try:
     useWindowsSearchPrivateAPI = True
 except objc.error as e:
     useWindowsSearchPrivateAPI = False
+    print(f"{useWindowsSearchPrivateAPI = }")
     print(e)
-
-print(f"useWindowIdPrivateAPI: {useWindowIdPrivateAPI}, useWindowsSearchPrivateAPI: {useWindowsSearchPrivateAPI}")
 
 runLoop = NSRunLoop.currentRunLoop()
 
@@ -82,32 +82,70 @@ class MacOSError(Exception):
 
 class Window:
 
-    def __init__(self, ax_win, parent_app, title=None, *, found_public=False, found_private=False):
-        self.ax_win = ax_win
+    def __init__(self, win, parent_app, title=None, *, found_public=False, found_private=False):
+        self.ax_win = win if isinstance(win, ApplicationServices.AXUIElementRef) else None
+        self.cg_win = win if isinstance(win, NSDictionary) else None
         self.parent_app = parent_app
         self.title = title or self.get_title()
         self.found_public = found_public
         self.found_private = found_private
-        self.CGWindowID = self.get_CGWindowID()
+        self.CGWindowID = self.cg_win["kCGWindowNumber"] if self.cg_win else self.get_CGWindowID()
 
     def __repr__(self):
         a_name = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.localizedName()
-        return f"MacOSWindow: [id={self.CGWindowID}, parent={a_name}, title={self.title}, found_private: {self.found_private}]"
-
+        bounds = self.bounds
+        precision = 40
+        return (
+            f"MacOSWindow: {{id={self.CGWindowID}; parent={a_name};"
+            f" title={self.title:.{precision}}{"..." if len(self.title) > precision else ""}; "
+            f"bounds: ({bounds["X"]}, {bounds["Y"]}), w={bounds["Width"]} h={bounds["Height"]}}}"
+        )
     def __eq__(self, other):
         if not isinstance(other, Window):
             return False
-        return self.ax_win == other.ax_win
+        if self.CGWindowID and other.CGWindowID:
+            return self.CGWindowID == other.CGWindowID
+        if self.ax_win and other.ax_win:
+            return self.ax_win == other.ax_win
+        return False
+
+    def __hash__(self):
+        return hash(self.CGWindowID)
 
     def get_title(self):
+        if self.ax_win:
+            return self.get_title_AX()
+
+    def get_title_AX(self):
         err, title = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXTitleAttribute, None)
         if err:
             msg = f"Failed to get 'AXTitle' with error code: {err}"
             raise MacOSError(msg)
         return title
 
+    def get_title_CG(self):
+        windows = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListExcludeDesktopElements, # | Quartz.kCGWindowListOptionOnScreenOnly,
+            Quartz.kCGNullWindowID,
+        )
+        updated_title = next((win["kCGWindowName"] for win in windows if win["kCGWindowNumber"] == self.CGWindowID), None)
+        return updated_title
+
     @property
     def bounds(self):
+        if self.ax_win:
+            return self.get_bounds_AX()
+        return self.get_bounds_CG()
+
+    def get_bounds_CG(self):
+        windows = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListExcludeDesktopElements, # | Quartz.kCGWindowListOptionOnScreenOnly,
+            Quartz.kCGNullWindowID,
+        )
+        updated_bounds = next((win["kCGWindowBounds"] for win in windows if win["kCGWindowNumber"] == self.CGWindowID), None)
+        return updated_bounds
+
+    def get_bounds_AX(self):
         pos = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXPositionAttribute, None)[1]
         pos_value = ApplicationServices.AXValueGetValue(pos, ApplicationServices.kAXValueCGPointType, None)[1]
         size = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXSizeAttribute, None)[1]
@@ -128,18 +166,25 @@ class Window:
             return winID
 
         windows = Quartz.CGWindowListCopyWindowInfo(
-            Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly,
+            Quartz.kCGWindowListExcludeDesktopElements, # | Quartz.kCGWindowListOptionOnScreenOnly,
             Quartz.kCGNullWindowID,
         )
         a_pid = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.processIdentifier()
+        title = self.title
+        bounds = self.bounds
+        title_matches = []
         for win in windows:
             if win["kCGWindowOwnerPID"] != a_pid:
                 continue
-            if win["kCGWindowName"] != self.title:
+            print(f"win: {win}")
+            if win["kCGWindowName"] != title:
                 continue
-            if win["kCGWindowBounds"] != self.bounds:
+            title_matches.append(win["kCGWindowNumber"])
+            if win["kCGWindowBounds"] != bounds:
                 continue
             return win["kCGWindowNumber"]
+        if len(title_matches) == 1:
+            return title_matches[0]
 
 
 
@@ -172,10 +217,14 @@ def getAppCGWindows(app):
         except KeyError:
             return False
 
+    windows = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListExcludeDesktopElements, # | Quartz.kCGWindowListOptionOnScreenOnly,
+        Quartz.kCGNullWindowID,
+    )
     matches = []
-    for win in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID):
+    for win in windows:
         if conditions(win):
-            matches.append(win)
+            matches.append(Window(win=win, parent_app=app, title=win["kCGWindowName"]))
     return matches
 
 
@@ -241,7 +290,7 @@ def getAllAppWindows(app, *, brute_force=True):
     return windows
 
 
-getAppWindows = getAllAppWindows
+getAppWindows = getAppCGWindows
 
 
 def getAXWindowBounds(ax_win):

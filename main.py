@@ -555,15 +555,16 @@ class MainWindow(QMainWindow):
 
             # Check if this app windows are found to avoid removing windows
             # when changing Space if finding windows in all spaces is not possible
-            windows_check = getAppWindows(QCoreApplication.applicationPid(), brute_force=False)
+            # windows_check = getAppWindows(QCoreApplication.applicationPid(), brute_force=False)
             # print(f"windows_check: {windows_check}")
-            print(f"self.windows: {self.windows}, idx: {self.window_select.currentIndex()}")
+
+            # print(f"idx: {self.window_select.currentIndex()}", *self.windows, sep="\n")
 
             curr_text_window = self.window_select.currentText()
-            found_private = self.windows[self.window_select.currentIndex()].found_private if curr_text_window != "**No Window Selected**" else True
+            # found_private = self.windows[self.window_select.currentIndex()].found_private if curr_text_window != "**No Window Selected**" else True
 
-            if not (windows_check or found_private):
-                return
+            # if not (windows_check or found_private):
+            #     return
 
             self.windows = getAppWindows(self.apps[self.app_select.currentIndex()])
             self.window_select.clear()
@@ -672,6 +673,8 @@ class MainWindow(QMainWindow):
         self.window_select.clear()
         self.window_select.addItems([w.title for w in self.windows])
         self.window_select.addItem("**No Window Selected**")
+        self.window_select.setCurrentText("**No Window Selected**")
+        self.set_window(None)
 
     def set_window(self, index: int) -> None:
         try:
