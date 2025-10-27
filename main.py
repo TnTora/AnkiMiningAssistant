@@ -7,6 +7,7 @@ from PySide6.QtGui import (
     # QPalette,
 )
 from PySide6.QtCore import (
+    QCoreApplication,
     QItemSelectionModel,
     QSize,
     Qt,
@@ -552,6 +553,14 @@ class MainWindow(QMainWindow):
 
             self.app_select.setCurrentText(curr_text_app)
 
+            # Check if this app windows are found to avoid removing windows
+            # when changing Space if finding windows in all spaces is not possible
+            windows_check = getAppWindows(QCoreApplication.applicationPid(), brute_force=False)
+            # print(f"windows_check: {windows_check}")
+            curr_win = self.windows[self.app_select.currentIndex()]
+            if not windows_check and not curr_win.found_private:
+                return
+
             curr_text_window = self.window_select.currentText()
             self.windows = getAppWindows(self.apps[self.app_select.currentIndex()])
             self.window_select.clear()
@@ -626,7 +635,7 @@ class MainWindow(QMainWindow):
 
             if self.app_select.currentIndex() < 0:
                 if sessionsdb.current_session["AppName"]:
-                    msg = f"{sessionsdb.current_session["AppName"]} not running"
+                    msg = f"'{sessionsdb.current_session["AppName"]}' not running"
                 else:
                     msg = ""
                 self.status_bar.showMessage(msg, 5000)
@@ -641,7 +650,7 @@ class MainWindow(QMainWindow):
                     break
 
             if self.window_select.currentIndex() < 0:
-                msg = f"{sessionsdb.current_session["WindowTitle"]} window not found"
+                msg = f"'{sessionsdb.current_session["WindowTitle"]}' window not found"
                 self.status_bar.showMessage(msg, 5000)
                 self.window_select.setCurrentText("**No Window Selected**")
                 self.set_window(None)

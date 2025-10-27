@@ -6,6 +6,10 @@ from AppKit import (
     NSBitmapImageFileTypePNG,
     NSBitmapImageRep,
     NSWorkspace,
+    NSRunningApplication,
+    NSMutableData,
+    NSData,
+    NSMakeRange,
 )
 
 import threading
@@ -14,6 +18,8 @@ from io import BytesIO
 from PIL import Image
 from math import sqrt
 
+import objc
+
 """
 Bridging to undocumented private API to get CGWindowID from AXUIElement Window
 
@@ -21,22 +27,47 @@ Bridging to undocumented private API to get CGWindowID from AXUIElement Window
 
 usage:
 err, winID = _AXUIElementGetWindow(window, None)
+
+Undocumented API to get AXUIElement from a Data object constructed as follows
+
+    - pid (4 bytes)
+    - 0 (4 bytes)
+    - 0x636f636f (4 bytes)
+    - AXUIElementID (8 bytes)
+
+    AXUIElementRef _AXUIElementCreateWithRemoteToken(CFDataRef)
+
+usage:
+AXUIElementRef (from ApplicationServices) must be imported for this to work
+
+axUI_el = _AXUIElementCreateWithRemoteToken(data)
 """
 
+bundle = objc.loadBundle("ApplicationServices",
+    bundle_path="/System/Library/Frameworks/ApplicationServices.framework",
+    module_globals=globals(),
+    scan_classes=False,
+)
+
 try:
-    import objc
-    bundle = objc.loadBundle("ApplicationServices",
-        bundle_path="/System/Library/Frameworks/ApplicationServices.framework",
-        module_globals=globals(),
-        scan_classes=False,
-    )
     functions = [("_AXUIElementGetWindow", objc._C_INT+b"^{__AXUIElement=}"+objc._C_OUT+objc._C_PTR+objc._C_UINT)]  # noqa: SLF001
 
     objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
-    usePrivateAPI = True
+    useWindowIdPrivateAPI = True
 except objc.error as e:
-    usePrivateAPI = False
+    useWindowIdPrivateAPI = False
     print(e)
+
+try:
+    functions2 = [("_AXUIElementCreateWithRemoteToken", b"^{__AXUIElement=}"+b"^{__CFData=}")]
+
+    objc.loadBundleFunctions(bundle, globals(), functions2, skip_undefined=False)
+    useWindowsSearchPrivateAPI = True
+except objc.error as e:
+    useWindowsSearchPrivateAPI = False
+    print(e)
+
+print(f"useWindowIdPrivateAPI: {useWindowIdPrivateAPI}, useWindowsSearchPrivateAPI: {useWindowsSearchPrivateAPI}")
 
 runLoop = NSRunLoop.currentRunLoop()
 
@@ -51,13 +82,22 @@ class MacOSError(Exception):
 
 class Window:
 
-    def __init__(self, ax_win, parent_app, title):
+    def __init__(self, ax_win, parent_app, title=None, *, found_public=False, found_private=False):
         self.ax_win = ax_win
         self.parent_app = parent_app
-        self.title = title
+        self.title = title or self.get_title()
+        self.found_public = found_public
+        self.found_private = found_private
         self.CGWindowID = self.get_CGWindowID()
+
     def __repr__(self):
-        return f"MacOSWindow: [id={self.CGWindowID}, parent={self.parent_app.localizedName()}, title={self.title}]"
+        a_name = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.localizedName()
+        return f"MacOSWindow: [id={self.CGWindowID}, parent={a_name}, title={self.title}, found_private: {self.found_private}]"
+
+    def __eq__(self, other):
+        if not isinstance(other, Window):
+            return False
+        return self.ax_win == other.ax_win
 
     def get_title(self):
         err, title = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXTitleAttribute, None)
@@ -81,7 +121,7 @@ class Window:
         return bounds
 
     def get_CGWindowID(self):
-        if usePrivateAPI:
+        if useWindowIdPrivateAPI:
             err, winID = _AXUIElementGetWindow(self.ax_win, None)
             if err:
                 return None
@@ -91,8 +131,9 @@ class Window:
             Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly,
             Quartz.kCGNullWindowID,
         )
+        a_pid = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.processIdentifier()
         for win in windows:
-            if win["kCGWindowOwnerPID"] != self.parent_app.processIdentifier():
+            if win["kCGWindowOwnerPID"] != a_pid:
                 continue
             if win["kCGWindowName"] != self.title:
                 continue
@@ -113,10 +154,11 @@ def getAllApps():
 
 
 def getAppCGWindows(app):
+    a_pid = app if isinstance(app, int) else app.processIdentifier()
 
     def conditions(x):
         try:
-            if x["kCGWindowOwnerPID"] != app.processIdentifier():
+            if x["kCGWindowOwnerPID"] != a_pid:
                 return False
             if x["kCGWindowLayer"] > 0:
                 return False
@@ -137,28 +179,69 @@ def getAppCGWindows(app):
     return matches
 
 
+def _has_win_subrole(axUiElement):
+    """Check if axUiElement is a window by verifying its Subrole."""
+    err, res = ApplicationServices.AXUIElementCopyAttributeValue(axUiElement, ApplicationServices.kAXSubroleAttribute, None)
+    if err:
+        return False
+    return res in [ApplicationServices.kAXStandardWindowSubrole, ApplicationServices.kAXDialogSubrole]
+
+
 def getAppAXWindows(app):
-    ax_app = ApplicationServices.AXUIElementCreateApplication(app.processIdentifier())
+    a_pid = app if isinstance(app, int) else app.processIdentifier()
+    ax_app = ApplicationServices.AXUIElementCreateApplication(a_pid)
     err, ax_wins = ApplicationServices.AXUIElementCopyAttributeValues(ax_app, ApplicationServices.kAXWindowsAttribute, 0, 99999, None)
 
     if err:
-        msg = f"Failed to get 'AXWindows' with error code: {err}"
+        msg = f"Failed to get 'AXWindows' for pid: {a_pid} with error code: {err}"
         # TODO: Log
         return []
-        # raise MacOSError(msg)
 
     windows = []
 
     for ax_win in ax_wins:
-        err, title = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXTitleAttribute, None)
-        if err:
-            # TODO: log
+        # err, title = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXTitleAttribute, None)
+        # if err:
+        #     # TODO: log
+        #     continue
+        if not _has_win_subrole(ax_win):
             continue
-        windows.append(Window(ax_win, app, title))
+        windows.append(Window(ax_win, app, found_public=True))
+
     return windows
 
 
-getAppWindows = getAppAXWindows
+# Based on implementation in alt-tab-macos https://github.com/lwouis/alt-tab-macos/commit/2cd8b96d389004b41ce2aad5667d0a11be36dabf
+def _brute_force_window_search(a_pid: int):
+    remoteToken = NSMutableData(length=20)
+    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(0, 4), a_pid.to_bytes(4, byteorder="little"))
+    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(4, 4), bytes(4))
+    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(8, 4), (0x636f636f).to_bytes(4, byteorder="little"))
+    windows = []
+    for i in range(1000):
+        remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(12, 8), i.to_bytes(8, byteorder="little"))
+        axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken)
+        if not _has_win_subrole(axUiElement):
+            continue
+        windows.append(axUiElement)
+    return windows
+
+
+def getAllAppWindows(app, *, brute_force=True):
+    a_pid = app if isinstance(app, int) else app.processIdentifier()
+    windows = getAppAXWindows(a_pid)
+    if useWindowsSearchPrivateAPI and brute_force:
+        b_wins = [Window(w, a_pid, found_private=True) for w in _brute_force_window_search(a_pid)]
+        for win in b_wins:
+            try:
+                win_idx = windows.index(win)
+                windows[win_idx].found_private = True
+            except ValueError:  # noqa: PERF203
+                windows.append(win)
+    return windows
+
+
+getAppWindows = getAllAppWindows
 
 
 def getAXWindowBounds(ax_win):
@@ -181,7 +264,7 @@ def getAXWindowBounds(ax_win):
 
 def getAXWindowFromWindowInfo(AXWindowsList, win):
     for ax_win in AXWindowsList:
-        if usePrivateAPI:
+        if useWindowIdPrivateAPI:
             err, winID = _AXUIElementGetWindow(ax_win, None)
 
             if not err and win["kCGWindowNumber"] == winID:
