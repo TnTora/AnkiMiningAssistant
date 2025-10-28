@@ -61,10 +61,10 @@ class RegionSelect(QWidget):
         precision_in = 3
         precision_out = 5
         edges = {
-            "top": QRect(self.selection.topLeft()-QPoint(0, precision_out), QSize(self.selection.width(), precision_in+precision_out)),
-            "bottom": QRect(self.selection.bottomLeft()-QPoint(0, precision_in), QSize(self.selection.width(), precision_in+precision_out)),
-            "left": QRect(self.selection.topLeft()-QPoint(precision_out, 0), QSize(precision_in+precision_out, self.selection.height())),
-            "right": QRect(self.selection.topRight()-QPoint(precision_in, 0), QSize(precision_in+precision_out, self.selection.height())),
+            "top": QRect(self.selection.topLeft()-QPoint(precision_out, precision_out), QSize(self.selection.width()+2*precision_out, precision_in+precision_out)),
+            "bottom": QRect(self.selection.bottomLeft()-QPoint(precision_out, precision_in), QSize(self.selection.width()+2*precision_out, precision_in+precision_out)),
+            "left": QRect(self.selection.topLeft()-QPoint(precision_out, precision_out), QSize(precision_in+precision_out, self.selection.height()+2*precision_out)),
+            "right": QRect(self.selection.topRight()-QPoint(precision_in, precision_out), QSize(precision_in+precision_out, self.selection.height()+2*precision_out)),
         }
         pos = event.pos()
         for edge, rect in edges.items():
@@ -73,7 +73,6 @@ class RegionSelect(QWidget):
         if self.selection.contains(pos, proper=True):
             self.pressed = self.pressed or "center"
             self.old_mouse_pos = pos
-        print(f"{self.pressed = }")
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:

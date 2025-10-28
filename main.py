@@ -44,7 +44,7 @@ from util.database import (
     imagedb,
     audiodb,
     linedb,
-    sessionsdb
+    sessionsdb,
 )
 
 from util.mac import (
