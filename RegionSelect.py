@@ -8,9 +8,12 @@ from PySide6.QtGui import QGuiApplication, QPainter, QColor, QPen, QBrush
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
-    QVBoxLayout,
+    QHBoxLayout,
     QSizePolicy,
+    QPushButton,
 )
+
+from util.database import sessionsdb
 
 
 class RegionSelect(QWidget):
@@ -23,9 +26,6 @@ class RegionSelect(QWidget):
         self.setGeometry(screen_geometry)
         self.setFixedSize(screen_geometry.size())
 
-        # use self.selection.normalized() when getting selection
-        # to make sure the rect as positive width and height
-
         self.available_geometry = QGuiApplication.primaryScreen().availableGeometry()
 
         x = x or self.available_geometry.x()
@@ -33,13 +33,47 @@ class RegionSelect(QWidget):
         w = w or self.available_geometry.width()/2
         h = h or self.available_geometry.height()/2
 
-        self.selection = QRect(x, y, w, h)
+        self.selection  = QRect(x, y, w, h)
 
         self.pressed = ""
         self.old_mouse_pos = None
 
-        self.lb = QLabel("Testing", parent=self)
-        self.lb.setGeometry(50, 50, self.lb.width(), self.lb.height())
+        self.reset_button = QPushButton("Reset")
+        self.reset_button.clicked.connect(
+            lambda: self.reset_selection(x, y, w, h)
+        )
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.close)
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_selection)
+
+        self.buttons_layout = QHBoxLayout()
+        self.buttons_layout.addWidget(self.reset_button)
+        self.buttons_layout.addWidget(self.cancel_button)
+        self.buttons_layout.addWidget(self.save_button)
+
+        self.buttons = QWidget(self)
+        self.buttons.setLayout(self.buttons_layout)
+
+        self.adjust_selection_box()
+
+    def reset_selection(self, x, y, w, h):
+        """Return selection to its initial position."""
+        self.selection.setRect(x, y, w, h)
+        self.buttons.setGeometry(
+            self.selection.right()-self.buttons_layout.sizeHint().width(),
+            self.selection.bottom(),
+            self.buttons_layout.sizeHint().width(),
+            self.buttons_layout.sizeHint().height(),
+        )
+        self.update()
+
+    def save_selection(self):
+        # use self.selection.normalized() when getting selection
+        # to make sure the rect as positive width and height
+        sessionsdb.current_session["box_selection"] = self.selection.normalized().getRect()
 
     def adjust_selection_box(self):
         """Keep the selection box within the available geometry."""
@@ -54,6 +88,21 @@ class RegionSelect(QWidget):
             self.selection.setTopLeft(new_top_left)
             self.selection.setSize(curr_size)
 
+        self.selection = self.selection.normalized()
+
+        if self.available_geometry.bottom()-self.selection.bottom() > self.buttons_layout.sizeHint().height():
+            buttons_y = self.selection.bottom()
+        elif self.selection.top() - self.available_geometry.top() > self.buttons_layout.sizeHint().height():
+            buttons_y = self.selection.top()-self.buttons_layout.sizeHint().height()
+        else:
+            buttons_y = self.selection.bottom()-self.buttons_layout.sizeHint().height()
+
+        self.buttons.setGeometry(
+            self.selection.right()-self.buttons_layout.sizeHint().width(),
+            buttons_y,
+            self.buttons_layout.sizeHint().width(),
+            self.buttons_layout.sizeHint().height(),
+        )
 
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -96,7 +145,7 @@ class RegionSelect(QWidget):
             "right": self.selection.setRight,
         }
 
-        func_points = {
+        func_corners = {
             "topleft": self.selection.setTopLeft,
             "topright": self.selection.setTopRight,
             "bottomleft": self.selection.setBottomLeft,
@@ -107,9 +156,9 @@ class RegionSelect(QWidget):
             func_edges[self.pressed](pos.x())
         elif self.pressed in ["top", "bottom"]:
             func_edges[self.pressed](pos.y())
-        elif self.pressed != "center":
-            func_points[self.pressed](pos)
-        else:
+        elif self.pressed in func_corners:
+            func_corners[self.pressed](pos)
+        elif self.pressed == "center":
             self.setCursor(Qt.BlankCursor)
             diff = pos - self.old_mouse_pos
             self.old_mouse_pos = pos
@@ -121,12 +170,12 @@ class RegionSelect(QWidget):
     def paintEvent(self, e):
         super().paintEvent(e)
         painter = QPainter()
-        # painter.setCompositionMode(QPainter.CompositionMode_Source)
         painter.begin(self)
-        painter.fillRect( 0, 0, self.width(), self.height(), QColor(0, 0, 0, 200))
         painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect( 0, 0, self.width(), self.height(), QColor(0, 0, 0, 200))
         painter.setPen(QPen(QColor(255, 0, 0), 1))
         painter.setBrush(QBrush(QColor(0, 0, 0, 100)))
         painter.drawRect(self.selection)
+        # painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         painter.end()
 
