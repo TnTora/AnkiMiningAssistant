@@ -332,7 +332,9 @@ class SessionDB:
                 "continuous_recording": True,
                 "auto_update": False,
                 "open_in_browser": True,
-                "preview_note": False
+                "preview_note": False,
+                "use_screen_region": False,
+                "screen_region": (0, 0, 0, 0),
             }
         try:
             self.current_session = self.sessions_dict[GeneralSettings.last_session]
@@ -350,24 +352,27 @@ class SessionDB:
                             continuous_recording BOOLEAN,
                             auto_update     BOOLEAN,
                             open_in_browser BOOLEAN,
-                            preview_note    BOOLEAN
+                            preview_note    BOOLEAN,
+                            use_screen_region BOOLEAN,
+                            screen_region
                 );""")
 
     def store_sessions(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 conn.execute("DELETE FROM sessions;")
-                for name in self.sessions_dict:
+                for name, session in self.sessions_dict.items():
+                    session["screen_region"] = json.dumps(session["screen_region"])
                     conn.execute("""
-                        INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note)
-                        VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser, :preview_note);
-                    """, {"name": name} | self.sessions_dict[name])
+                        INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note, use_screen_region, screen_region)
+                        VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser, :preview_note, :use_screen_region, :screen_region);
+                    """, {"name": name} | session)
 
     def load_sessions(self):
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
-                for name, a_name, w_title, c_rec, a_up, open_gui, preview_note in conn.execute("""
-                    SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note FROM sessions
+                for name, a_name, w_title, c_rec, a_up, open_gui, preview_note, use_screen_region, screen_region in conn.execute("""
+                    SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note, use_screen_region, screen_region FROM sessions
                 """):
                     self.sessions_dict[name] = {
                         "AppName": a_name,
@@ -375,7 +380,9 @@ class SessionDB:
                         "continuous_recording": c_rec,
                         "auto_update": a_up,
                         "open_in_browser": open_gui,
-                        "preview_note": preview_note
+                        "preview_note": preview_note,
+                        "use_screen_region": use_screen_region,
+                        "screen_region": tuple(json.loads(screen_region))
                     }
 
 

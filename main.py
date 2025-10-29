@@ -60,6 +60,7 @@ from settings_gui import SettingsWindow
 from confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
 from player import PlayerState, Player_Worker
+from RegionSelect import RegionSelect
 
 
 class SelectionError(Exception):
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
     def __init__(self):  # noqa: PLR0915
         super().__init__()
         self.settings_window = None
+        self.screen_region_window = None
         self.lines_shown = False
         self.with_lines_height = None
         self.apps = getAllApps()
@@ -88,18 +90,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AnkiMiningAssistant")
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
-
-        # self.setStyleSheet(f"""
-        #     QToolButton {{
-        #         border: 1px solid #555555;
-        #         border-radius: 6px;
-        #         background-color: {self.palette().color(QPalette.ColorRole.Base).name()};
-        #     }}
-
-        #     QToolButton:pressed {{
-        #         background-color: {self.palette().color(QPalette.ColorRole.Light).name()};
-        #     }}
-        # """)
 
         """
         Creating Widgets
@@ -163,6 +153,15 @@ class MainWindow(QMainWindow):
         self.mic_select.currentIndexChanged.connect(self.set_mic)
         if preferred_idx is not None:
             self.mic_select.setCurrentIndex(preferred_idx)
+
+        self.screen_region_check = QCheckBox("Use screen region: ")
+        self.screen_region_check.checkStateChanged.connect(
+            self.toggle_screen_region
+        )
+
+        self.screen_region_button = QPushButton("Set")
+        self.screen_region_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.screen_region_button.clicked.connect(self.open_screen_region)
 
         self.continuous_recording = QCheckBox("Continuous Recording")
 
@@ -280,6 +279,11 @@ class MainWindow(QMainWindow):
         self.session_combo_layout.addWidget(self.new_session_button)
         self.session_combo_layout.setStretch(0, 1)
 
+        self.screen_region_hbox = QHBoxLayout()
+        self.screen_region_hbox.setContentsMargins(0, 10, 0, 5)
+        self.screen_region_hbox.addWidget(self.screen_region_check)
+        self.screen_region_hbox.addWidget(self.screen_region_button)
+
         self.session_box_layout.addLayout(self.session_combo_layout)
         self.session_box_layout.addWidget(self.app_sel_label)
         self.session_box_layout.addWidget(self.app_select)
@@ -287,6 +291,7 @@ class MainWindow(QMainWindow):
         self.session_box_layout.addWidget(self.window_select)
         self.session_box_layout.addWidget(self.mic_sel_label)
         self.session_box_layout.addWidget(self.mic_select)
+        self.session_box_layout.addLayout(self.screen_region_hbox)
         self.session_box_layout.addWidget(self.continuous_recording)
         self.session_box.setLayout(self.session_box_layout)
 
@@ -295,7 +300,7 @@ class MainWindow(QMainWindow):
         self.session_out_layout.addWidget(self.session_box)
 
         self.button_layout = QVBoxLayout()
-        self.button_layout.setContentsMargins(0, 5, 10, 0)
+        self.button_layout.setContentsMargins(0, 20, 10, 0)
         self.button_layout.addWidget(self.rec_screen_button)
         self.button_layout.addWidget(self.rec_audio_button)
         self.button_layout.addWidget(self.rec_both_button)
@@ -345,12 +350,6 @@ class MainWindow(QMainWindow):
         self.middle_row.setContentsMargins(10, 0, 10, 0)
         self.middle_row.addWidget(self.show_lines_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
         self.middle_row.addWidget(self.settings_button, alignment=Qt.AlignRight)
-
-        # self.bottom_half = QVBoxLayout()
-        # self.bottom_half.setSpacing(0)
-        # self.bottom_half.setContentsMargins(0, 0, 0, 0)
-        # self.bottom_half.addLayout(self.middle_row)
-        # self.bottom_half.addWidget(self.listwidget)
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 10, 0, 0)
@@ -462,17 +461,14 @@ class MainWindow(QMainWindow):
 
         anki.start_monitoring_anki()
 
-        # foo = NotePreviewDialog(
-        #     imgs=screenshot.images_tmp.deque,
-        #     audio_data=audio.buffer,
-        #     audio_range=(10, 200),
-        #     sentence="日本人が肉を日常食べるようになったのは明治以降である. 日本人が肉を日常食べるようになったのは明治以降である."
-        # )
-        # foo.open()
-
     def open_config(self) -> None:
         self.settings_window = SettingsWindow()
         self.settings_window.show()
+
+    def open_screen_region(self) -> None:
+        x1, y1, x2, y2 = sessionsdb.current_session["screen_region"]
+        self.screen_region_window = RegionSelect(x1, y1, x2-x1, y2-y1)
+        self.screen_region_window.show()
 
     @Slot(str, int)
     def update_listener_status(self, url: str, state: int) -> None:
@@ -533,6 +529,9 @@ class MainWindow(QMainWindow):
         if self.app_select.view().isVisible() or self.window_select.view().isVisible():
             return
 
+        if sessionsdb.current_session["use_screen_region"]:
+            return
+
         if self.app_select.currentIndex() < 0:
             self.apps = getAllApps()
             self.app_select.clear()
@@ -585,7 +584,9 @@ class MainWindow(QMainWindow):
             "continuous_recording": settings.audio.continuous_recording,
             "auto_update": settings.anki.auto_update_last_note,
             "open_in_browser": settings.anki.open_note_in_gui,
-            "preview_note": False
+            "preview_note": False,
+            "use_screen_region": False,
+            "screen_region": (0, 0, 0, 0),
         }
         self.session_select.clear()
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
@@ -615,6 +616,7 @@ class MainWindow(QMainWindow):
         self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
         self.open_in_browser_check.setChecked(sessionsdb.current_session["open_in_browser"])
         self.preview_note_check.setChecked(sessionsdb.current_session["preview_note"])
+        self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
         if settings.general.last_session == "Manual":
             self.auto_update_check.setEnabled(False)
@@ -699,6 +701,18 @@ class MainWindow(QMainWindow):
             sessionsdb.sessions_dict[settings.general.last_session][setting] = True
         else:
             sessionsdb.sessions_dict[settings.general.last_session][setting] = False
+
+    def toggle_screen_region(self, state: Qt.CheckState) -> None:
+        if state == Qt.CheckState.Checked:
+            sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = True
+            self.app_select.setEnabled(False)
+            self.window_select.setEnabled(False)
+            self.set_window(None)
+        else:
+            sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = False
+            self.app_select.setEnabled(True)
+            self.window_select.setEnabled(True)
+            self.set_window(self.window_select.currentIndex())
 
     def audioMonitor(self) -> None:
         if not self.av_monitoring:
