@@ -73,11 +73,20 @@ class RegionSelect(QWidget):
     def save_selection(self):
         # use self.selection.normalized() when getting selection
         # to make sure the rect as positive width and height
-        sessionsdb.current_session["box_selection"] = self.selection.normalized().getRect()
+        sessionsdb.current_session["screen_region"] = self.selection.normalized().getCoords()
+        self.close()
 
     def adjust_selection_box(self):
-        """Keep the selection box within the available geometry."""
-        curr_size = self.selection.size()
+        """
+        Keep the selection box within the available geometry.
+
+        Limit minum selection size and calculate buttons position.
+        """
+        # curr_size = self.selection.size()
+        curr_size = QSize(
+            max(30, self.selection.size().width()),
+            max(30, self.selection.size().height()),
+        )
         new_top_left_x = max(self.available_geometry.left(), self.selection.left())
         new_top_left_x = min(new_top_left_x, self.available_geometry.right()-curr_size.width())
         new_top_left_y = max(self.available_geometry.top(), self.selection.top())
@@ -86,6 +95,15 @@ class RegionSelect(QWidget):
 
         if new_top_left != self.selection.topLeft():
             self.selection.setTopLeft(new_top_left)
+            self.selection.setSize(curr_size)
+
+        if "left" in self.pressed or "top" in self.pressed:
+            new_top_left = QPoint(
+                max(0, min(new_top_left_x, self.selection.right()-30)),
+                max(0, min(new_top_left_y, self.selection.bottom()-30)),
+            )
+            self.selection.setTopLeft(new_top_left)
+        elif "right" in self.pressed or "bottom" in self.pressed:
             self.selection.setSize(curr_size)
 
         self.selection = self.selection.normalized()
@@ -97,8 +115,13 @@ class RegionSelect(QWidget):
         else:
             buttons_y = self.selection.bottom()-self.buttons_layout.sizeHint().height()
 
+        if self.selection.right()-self.available_geometry.left() < self.buttons_layout.sizeHint().width():
+            button_x = 0
+        else:
+            button_x = self.selection.right()-self.buttons_layout.sizeHint().width()
+
         self.buttons.setGeometry(
-            self.selection.right()-self.buttons_layout.sizeHint().width(),
+            button_x,
             buttons_y,
             self.buttons_layout.sizeHint().width(),
             self.buttons_layout.sizeHint().height(),
