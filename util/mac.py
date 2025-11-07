@@ -1,8 +1,11 @@
 import Quartz
-from Foundation import NSRunLoop, NSDefaultRunLoopMode, NSPredicate, NSDictionary
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
+    NSRunLoop,
+    NSDefaultRunLoopMode,
+    NSPredicate,
+    NSDictionary,
     NSBitmapImageFileTypePNG,
     NSBitmapImageRep,
     NSWorkspace,
@@ -10,6 +13,9 @@ from AppKit import (
     NSMutableData,
     NSData,
     NSMakeRange,
+    CGRect,
+    CGPoint,
+    CGSize,
 )
 
 import threading
@@ -373,7 +379,7 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win: Window | None = None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
+    def capture_screenshot(save_path: str | None = None, win: Window | None = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -437,8 +443,8 @@ try:
 
             configuration = SCStreamConfiguration()
             configuration.setCapturesAudio_(False)
-            configuration.setWidth_(width)
-            configuration.setHeight_(height)
+            # configuration.setWidth_(width)
+            # configuration.setHeight_(height)
             configuration.setPreservesAspectRatio_(True)
             configuration.setShowsCursor_(False)
             configuration.setIgnoreShadowsSingleWindow_(True)
@@ -446,6 +452,16 @@ try:
             configuration.setIgnoreShadowsDisplay_(True)
             configuration.setIgnoreGlobalClipDisplay_(True)
             configuration.setCaptureResolution_(SCCaptureResolutionBest)
+
+            if screen_region:
+                x1, y1, x2, y2 = screen_region
+                # print(f"{CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)) = }")
+                configuration.setSourceRect_(CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)))
+                configuration.setWidth_(x2-x1)
+                configuration.setHeight_(y2-y1)
+            else:
+                configuration.setWidth_(width)
+                configuration.setHeight_(height)
 
             SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(
                 content_filter, configuration, capture_image_completion_handler

@@ -23,19 +23,11 @@ class AnkiSettings:
     auto_update_last_note = True
     open_note_in_gui = True
     deck = "*"
-    note_types = ["Lapis"]
-    expression = {
-        "Lapis": "Expression",
-    }
-    sentence = {
-        "Lapis": "Sentence",
-    }
-    picture = {
-        "Lapis": "Picture",
-    }
-    sentence_audio = {
-        "Lapis": "SentenceAudio",
-    }
+    note_types = []
+    expression = {}
+    sentence = {}
+    picture = {}
+    sentence_audio = {}
     note_types_fields = {}
 
 

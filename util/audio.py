@@ -12,7 +12,7 @@ from collections import deque
 from itertools import islice
 
 from util import screenshot
-from util.database import audiodb, AudioSettings, GeneralSettings
+from util.database import audiodb, AudioSettings, GeneralSettings, sessionsdb
 
 monitoringAudio = None
 mic = None
@@ -183,7 +183,12 @@ class AudioBuffer:
         for interval in reversed(cls.inactive_intervals):
 
             if interval.end_time is None:
+                if interval.start_time < line_time:
+                    return None
                 continue
+
+            if interval.start_time < line_time < interval.end_time:
+                return None
 
             if line_time > interval.end_time:
                 break
@@ -197,7 +202,7 @@ class AudioBuffer:
         line_time: datetime,
         next_line_time: datetime | None = None,
         save_path: str | None = None,
-    ) -> str | tuple[list, int, int] | None:
+    ) -> tuple[list | str | None, int | None, int | None]:
 
         line_start = None
         line_end = None
@@ -209,7 +214,7 @@ class AudioBuffer:
 
         if curr_time - line_time - AudioBuffer.total_offset > AudioBuffer.storage_time_limit:
             print("Outside Buffer scope")
-            return None
+            return None, None, None
 
         data_copy = self.copy_slice()
 
@@ -219,6 +224,11 @@ class AudioBuffer:
             line_end = len(data_copy)
 
         timing_adjustment = AudioBuffer.get_timing_adjustment(curr_time, line_time)
+
+        if timing_adjustment is None:
+            # TODO: log
+            print("no audio at line timestamp")
+            return None, None, None
 
         line_start = len(data_copy) - int(((curr_time - line_time) - timing_adjustment).total_seconds() // AudioSettings.interval_duration)
 
@@ -241,13 +251,13 @@ class AudioBuffer:
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
                 for interval in islice(data_copy.deque, line_start, line_end):
                     f.write(interval.data)
-            return save_path
+            return save_path, line_start, line_end
 
         return data_copy, line_start, line_end
 
 
 def get_mics():
-    mikes = sc.all_microphones()
+    mikes = sc.all_microphones(include_loopback=True)
     loopbacks = []
     for i in range(len(mikes)):
         loopback = isloopback(mikes[i].id)
@@ -318,7 +328,7 @@ class recordAudioBuffer(threading.Thread):
                     secondary_buffer.update(_data, speech_prob)
                     continue
 
-                if AudioSettings.pause_threshold < PAUSE and not AudioSettings.continuous_recording:
+                if AudioSettings.pause_threshold < PAUSE and not sessionsdb.current_session["continuous_recording"]:
                     print("pausing")
                     secondary_buffer.deque.clear()
                     AudioBuffer.pause()

@@ -232,7 +232,7 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
 
     next_line_time = None
     images = []
-    line_audio = None
+    line_audio = (None)
     line_update = None
 
     selected_img = None
@@ -312,7 +312,7 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
             f.write(selected_img.img_bytesIO.getbuffer())
         update_fields[AnkiSettings.picture[last_note_info["noteType"]]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
-    if line_audio:
+    if line_audio[0]:
         update_fields[AnkiSettings.sentence_audio[last_note_info["noteType"]]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
 
     if update_fields:
