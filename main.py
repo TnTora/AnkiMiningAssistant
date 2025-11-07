@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from util import anki
-from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
+# from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 from util.database import (
     settings,
     imagedb,
@@ -47,10 +47,16 @@ from util.database import (
     sessionsdb,
 )
 
-from util.mac import (
+from util.platform_util import (
     getAllApps,
     getAppWindows,
+    platform,
+    is_wayland,
 )
+
+if platform == "darwin":
+    from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
+
 import util.sockets
 from util import audio
 from util import screenshot
@@ -61,6 +67,41 @@ from confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
 from player import PlayerState, Player_Worker
 from RegionSelect import RegionSelect
+
+
+def _startMonitoring() -> None:
+
+    audio.record_audio_buffer = audio.recordAudioBuffer()
+    audio.record_audio_buffer.start()
+
+    screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
+    screenshot.screenshot_manager.start()
+
+
+def _stopMonitoring():
+
+    audio.record_audio_buffer.stop_recording()
+    audio.record_audio_buffer.join()
+    audio.record_audio_buffer = None
+
+    screenshot.screenshot_manager.stop_recording()
+    screenshot.screenshot_manager.join()
+    screenshot.screenshot_manager = None
+
+
+if is_wayland:
+    from util.platform_util import start_screencapture, stop_screencapture, set_sources
+    def startMonitoring() -> None:
+        start_screencapture()
+        _startMonitoring()
+
+    def stopMonitoring():
+        _stopMonitoring()
+        stop_screencapture()
+else:
+    startMonitoring = _startMonitoring
+    stopMonitoring = _stopMonitoring
+
 
 
 class SelectionError(Exception):
@@ -141,10 +182,14 @@ class MainWindow(QMainWindow):
         self.window_select = QComboBox()
         self.window_select.activated.connect(self.set_window)
 
-        self.apps_windows_timer = QTimer(self)
-        self.apps_windows_timer.setInterval(1000)
-        self.apps_windows_timer.timeout.connect(self.update_apps_windows)
-        self.apps_windows_timer.start()
+        if is_wayland:
+            self.select_source_button = QPushButton("Select Source")
+            self.select_source_button.clicked.connect(set_sources)
+        else:
+            self.apps_windows_timer = QTimer(self)
+            self.apps_windows_timer.setInterval(1000)
+            self.apps_windows_timer.timeout.connect(self.update_apps_windows)
+            self.apps_windows_timer.start()
 
         self.mic_sel_label = QLabel("Mic: ")
 
@@ -153,6 +198,7 @@ class MainWindow(QMainWindow):
         self.mic_select.currentIndexChanged.connect(self.set_mic)
         if preferred_idx is not None:
             self.mic_select.setCurrentIndex(preferred_idx)
+        self.set_mic(self.mic_select.currentIndex())
 
         self.screen_region_check = QCheckBox("Use screen region: ")
         self.screen_region_check.checkStateChanged.connect(
@@ -264,7 +310,7 @@ class MainWindow(QMainWindow):
             self.listwidget.hide()
 
         self.monitoring_button = QPushButton("Start Monitoring")
-        self.monitoring_button.released.connect(self.audioMonitor)
+        self.monitoring_button.released.connect(self.toggleMonitoring)
 
         """
         Building Layout
@@ -285,10 +331,15 @@ class MainWindow(QMainWindow):
         self.screen_region_hbox.addWidget(self.screen_region_button)
 
         self.session_box_layout.addLayout(self.session_combo_layout)
-        self.session_box_layout.addWidget(self.app_sel_label)
-        self.session_box_layout.addWidget(self.app_select)
-        self.session_box_layout.addWidget(self.win_sel_label)
-        self.session_box_layout.addWidget(self.window_select)
+
+        if is_wayland:
+            self.session_box_layout.addWidget(self.select_source_button)
+        else:
+            self.session_box_layout.addWidget(self.app_sel_label)
+            self.session_box_layout.addWidget(self.app_select)
+            self.session_box_layout.addWidget(self.win_sel_label)
+            self.session_box_layout.addWidget(self.window_select)
+
         self.session_box_layout.addWidget(self.mic_sel_label)
         self.session_box_layout.addWidget(self.mic_select)
         self.session_box_layout.addLayout(self.screen_region_hbox)
@@ -680,6 +731,8 @@ class MainWindow(QMainWindow):
 
     def set_window(self, index: int) -> None:
         try:
+            if index < 0:
+                return
             screenshot.win = self.windows[index]
             sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index].title
         except (KeyError, IndexError, TypeError) as e:
@@ -689,9 +742,12 @@ class MainWindow(QMainWindow):
             screenshot.win = None
 
     def set_mic(self, index: int) -> None:
+        if index < 0:
+            return
+        old_mic = audio.mic
         audio.mic = self.mikes[index]
         settings.update_option("audio", "mic", self.mikes[index].name)
-        if audio.buffer is None or audio.buffer.channels != audio.mic.channels:
+        if audio.buffer is None or old_mic != audio.mic:
             audio.buffer = audio.AudioBuffer(channels=audio.mic.channels, is_primary=True)
             audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
             self.player_state.total_intervals = len(audio.buffer)
@@ -714,31 +770,34 @@ class MainWindow(QMainWindow):
             self.window_select.setEnabled(True)
             self.set_window(self.window_select.currentIndex())
 
-    def audioMonitor(self) -> None:
+    def toggleMonitoring(self) -> None:
         if not self.av_monitoring:
             self.monitoring_button.setText("Stop Monitoring")
             self.av_monitoring = True
             self.play_button.setDisabled(True)
+            startMonitoring()
         else:
+            stopMonitoring()
             self.monitoring_button.setText("Start Monitoring")
             self.av_monitoring = False
             self.play_button.setDisabled(False)
 
-        if audio.record_audio_buffer is None:
-            audio.record_audio_buffer = audio.recordAudioBuffer()
-            audio.record_audio_buffer.start()
-        else:
-            audio.record_audio_buffer.stop_recording()
-            audio.record_audio_buffer.join()
-            audio.record_audio_buffer = None
 
-        if screenshot.screenshot_manager is None:
-            screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
-            screenshot.screenshot_manager.start()
-        else:
-            screenshot.screenshot_manager.stop_recording()
-            screenshot.screenshot_manager.join()
-            screenshot.screenshot_manager = None
+        # if audio.record_audio_buffer is None:
+        #     audio.record_audio_buffer = audio.recordAudioBuffer()
+        #     audio.record_audio_buffer.start()
+        # else:
+        #     audio.record_audio_buffer.stop_recording()
+        #     audio.record_audio_buffer.join()
+        #     audio.record_audio_buffer = None
+
+        # if screenshot.screenshot_manager is None:
+        #     screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
+        #     screenshot.screenshot_manager.start()
+        # else:
+        #     screenshot.screenshot_manager.stop_recording()
+        #     screenshot.screenshot_manager.join()
+        #     screenshot.screenshot_manager = None
 
     @Slot(str)
     def openAlertDialog(self, txt: str) -> None:
@@ -825,7 +884,9 @@ def update_all_dbs() -> None:
 
 
 def main() -> None:
-    aggr_id, tap_id = createAggregateDevice()
+    aggr_id, tap_id = None, None
+    if platform == "darwin":
+        aggr_id, tap_id = createAggregateDevice()
     # ut.hotkeys.start()
     # ut.hotkeys.wait()
     app = QApplication(sys.argv)

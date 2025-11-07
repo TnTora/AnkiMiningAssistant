@@ -5,8 +5,8 @@ from datetime import datetime
 from io import BytesIO
 
 # from PIL import Image
-from util.mac import capture_screenshot
-from util.database import GeneralSettings, ImageSettings, imagedb
+from util.platform_util import capture_screenshot
+from util.database import GeneralSettings, ImageSettings, imagedb, sessionsdb
 # import util.util as util
 
 win = None
@@ -71,49 +71,17 @@ class ImageTempStorage:
 images_tmp = ImageTempStorage()
 screenshot_manager = None
 
-# def _take_screenshot(curr_time, wait=None):
-#     try:
-#         bounds = getAXWindowBounds(selected_win_AX)
-#         curr_time_str = curr_time.strftime('%Y-%m-%d_%H_%M_%S')
-
-#         if wait is not None:
-#             # time.sleep(wait)
-#             wait_thread = threading.Thread(target=time.sleep, args=(wait,))
-#             wait_thread.start()
-
-#         if not isCurrentlyActive(app):
-#             activateWindow(app, proc, selected_win_AX)
-
-#         if wait is not None:
-#             wait_thread.join()
-
-#         rect = (int(bounds["X"]), int(bounds["Y"]), int(bounds["X"]+bounds["Width"]), int(bounds["Y"]+bounds["Height"]))
-#         im = ImageGrab.grab(bbox=rect)
-#         # im = ImageGrab.grab(bbox=selected_win.rect)
-
-#         path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
-#         im.save(path_tmp)
-#         images_tmp[curr_time] = path_tmp
-
-#     except KeyboardInterrupt:
-#         pass
-
 
 def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = None, save_path: str | None = None):
     try:
 
-        # if curr_time is None:
-        #     curr_time = datetime.now()
-
-        # curr_time_str = curr_time.strftime('%Y-%m-%d_%H_%M_%S')
-
         if wait_sec is not None:
             sleep(wait_sec)
 
-        # path_tmp = os.path.join(temp_dir, f"{session}_{curr_time_str}.webp")
-        # path_tmp = f"{curr_time_str}.webp" if save_on_disk else None
-        tmp_img = capture_screenshot(save_path, win, img_format=ImageSettings.format)
-        # images_tmp[curr_time] = tmp_img
+        screen_region = sessionsdb.current_session["screen_region"] if sessionsdb.current_session["use_screen_region"] else None
+
+        tmp_img = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
+
         if isinstance(tmp_img, BytesIO):
             images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))
 
