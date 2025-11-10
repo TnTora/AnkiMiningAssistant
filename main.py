@@ -661,6 +661,9 @@ class MainWindow(QMainWindow):
         self.app_select.addItems([a.localizedName() for a in self.apps])
 
     def set_session(self, idx) -> None:
+        if self.av_monitoring:
+            self.toggleMonitoring()
+
         settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
         sessionsdb.current_session = sessionsdb.sessions_dict[settings.general.last_session]
 
@@ -765,6 +768,8 @@ class MainWindow(QMainWindow):
             self.app_select.setEnabled(False)
             self.window_select.setEnabled(False)
             self.set_window(None)
+            if sessionsdb.current_session["screen_region"] == (0, 0, 0, 0):
+                self.open_screen_region()
         else:
             sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = False
             self.app_select.setEnabled(True)
@@ -776,12 +781,18 @@ class MainWindow(QMainWindow):
             self.monitoring_button.setText("Stop Monitoring")
             self.av_monitoring = True
             self.play_button.setDisabled(True)
+            self.mic_select.setDisabled(True)
+            self.screen_region_check.setDisabled(True)
+            self.screen_region_button.setDisabled(True)
             startMonitoring()
         else:
             stopMonitoring()
             self.monitoring_button.setText("Start Monitoring")
             self.av_monitoring = False
             self.play_button.setDisabled(False)
+            self.mic_select.setDisabled(False)
+            self.screen_region_check.setDisabled(False)
+            self.screen_region_button.setDisabled(False)
 
 
         # if audio.record_audio_buffer is None:

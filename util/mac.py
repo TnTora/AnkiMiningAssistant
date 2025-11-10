@@ -106,6 +106,7 @@ class Window:
             f" title={self.title:.{precision}}{"..." if len(self.title) > precision else ""}; "
             f"bounds: ({bounds["X"]}, {bounds["Y"]}), w={bounds["Width"]} h={bounds["Height"]}}}"
         )
+
     def __eq__(self, other):
         if not isinstance(other, Window):
             return False
