@@ -55,6 +55,7 @@ def request(action, **params):
 
 
 def invoke(action, **params):
+    # TODO: Substiture exception with logging and returing None
     try:
         requestJson = json.dumps(request(action, **params)).encode("utf-8")
         response = json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{AnkiSettings.port}", requestJson)))
@@ -118,6 +119,8 @@ def get_note_info(note):
 
 
 def update_note(note_id, fields, tags=""):
+    if not fields:
+        return
     invoke("guiSelectNote", note=1)
     invoke("updateNoteFields", note={"id": note_id, "fields": fields})
     if tags:
@@ -126,7 +129,44 @@ def update_note(note_id, fields, tags=""):
         invoke("guiBrowse", query=f"nid:{note_id}")
 
 
-def manual_update_note(*, update_img: bool = True, update_audio: bool = True) -> None:  # noqa: C901
+def estimate_last_interval(buffer_copy):
+    # Check for the first interval of no voice in the last 20 seconds (or less if not availables) to get interval_end
+    # Then find a pause in the voice of at least pause_threshold to find interval_start
+
+    interval_start = max(0, len(buffer_copy)-int(5/settings.audio.interval_duration))
+    interval_end = len(buffer_copy)
+    pause_threshold = 2
+    margin = 0.2
+
+    end_found = False
+    pause = 0
+    for i in range(len(buffer_copy)-1, len(buffer_copy) - int(20/settings.audio.interval_duration), -1):
+        if not end_found:
+            if buffer_copy[i].vad <= settings.audio.vad_threshold:
+                continue
+            interval_end = min(interval_end, i + int(margin/settings.audio.interval_duration))
+            end_found = True
+            continue
+
+        if buffer_copy[i].vad <= settings.audio.vad_threshold:
+            pause += settings.audio.interval_duration
+            if pause > pause_threshold:
+                interval_start = max(0, i + int(pause/settings.audio.interval_duration) - int(margin/settings.audio.interval_duration))
+            continue
+
+        pause = 0
+
+    anki_signals.note_update_confirm.emit([], buffer_copy, (interval_start, interval_end), "")
+    res = anki_signals.wait_result()
+
+    if res is None:
+        return None
+
+    _, audio_interval, _ = res
+    return audio_interval
+
+
+def manual_update_note(*, update_img: bool = True, update_audio: bool = True) -> None:
     if last_note is None:
         anki_signals.note_update_info.emit("No note selected")
         return
@@ -142,46 +182,12 @@ def manual_update_note(*, update_img: bool = True, update_audio: bool = True) ->
         update_fields[AnkiSettings.picture[last_note_info["noteType"]]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
     if update_audio:
-        # data_copy = list(audio.buffer.slice_())
-        data_copy = audio.buffer.copy_slice()
-
-        # Check for the first interval of no voice in the last 20 seconds (or less if not availables) to get interval_end
-        # Then find a pause in the voice of at least pause_threshold to find interval_start
-
-        interval_start = max(0, len(data_copy)-int(5/settings.audio.interval_duration))
-        interval_end = len(data_copy)
-        pause_threshold = 2
-        margin = 0.2
-
-        end_found = False
-        pause = 0
-        for i in range(len(data_copy)-1, len(data_copy) - int(20/settings.audio.interval_duration), -1):
-            if not end_found:
-                if data_copy[i].vad <= settings.audio.vad_threshold:
-                    continue
-                interval_end = min(interval_end, i + int(margin/settings.audio.interval_duration))
-                end_found = True
-                continue
-
-            if data_copy[i].vad <= settings.audio.vad_threshold:
-                pause += settings.audio.interval_duration
-                if pause > pause_threshold:
-                    interval_start = max(0, i + int(pause/settings.audio.interval_duration) - int(margin/settings.audio.interval_duration))
-                continue
-
-            pause = 0
-
-        anki_signals.note_update_confirm.emit([], data_copy, (interval_start, interval_end), "")
-        res = anki_signals.wait_result()
-
-        if res is None:
-            return
-
-        _, audio_interval, _ = res
+        buffer_copy = audio.buffer.copy_slice()
+        audio_interval = estimate_last_interval(buffer_copy)
 
         if audio_interval:
             with sf.SoundFile(file=audio_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
-                for interval in islice(data_copy, audio_interval[0], audio_interval[1]):
+                for interval in islice(buffer_copy, audio_interval[0], audio_interval[1]):
                     f.write(interval.data)
             update_fields[AnkiSettings.sentence_audio[last_note_info["noteType"]]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
 
@@ -315,8 +321,7 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
     if line_audio[0]:
         update_fields[AnkiSettings.sentence_audio[last_note_info["noteType"]]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
 
-    if update_fields:
-        update_note(last_note, update_fields)
+    update_note(last_note, update_fields)
 
 
 CLEANER = re.compile("<.*?>")
