@@ -1,18 +1,26 @@
 import threading
 import torch
 import torchaudio
+import sys
 import numpy as np
 import soundcard as sc
 import soundfile as sf
 from silero_vad import load_silero_vad
 from time import time
 from datetime import datetime, timedelta
-from util.AggregateDevice import isloopback
 from collections import deque
 from itertools import islice
 
 from util import screenshot
 from util.database import audiodb, AudioSettings, GeneralSettings, sessionsdb
+
+if sys.platform == "darwin":
+    from util.AggregateDevice import isloopback
+    def _isloopback(mic):
+        return isloopback(mic.id)
+else:
+    def _isloopback(mic):
+        return mic.isloopback
 
 monitoringAudio = None
 mic = None
@@ -30,7 +38,6 @@ class AudioInterval:
         self.data = data
         self.vad = vad
         self.timestamp = timestamp or time()
-        # print(f"created self.timestamp: {self.timestamp}")
 
 
 class InactiveInterval:
@@ -260,7 +267,7 @@ def get_mics():
     mikes = sc.all_microphones(include_loopback=True)
     loopbacks = []
     for i in range(len(mikes)):
-        loopback = isloopback(mikes[i].id)
+        loopback = _isloopback(mikes[i])
         if loopback:
             loopbacks.append(i)
         stored_in_db = mikes[i].name == AudioSettings.mic

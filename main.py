@@ -897,18 +897,20 @@ def update_all_dbs() -> None:
 
 def main() -> None:
     aggr_id, tap_id = None, None
+
     if platform == "darwin":
         aggr_id, tap_id = createAggregateDevice()
-    # ut.hotkeys.start()
-    # ut.hotkeys.wait()
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = MainWindow()
     window.show()
+
     if sys.platform == "darwin":
         window.raise_()
+
     app.exec()
-    # ut.hotkeys.stop()
+
     if aggr_id is not None:
         destroyAggregateDevice(aggr_id, tap_id)
 
@@ -923,7 +925,7 @@ def main() -> None:
         screenshot.screenshot_manager = None
 
     if window.player_state.playing:
-        window.player_state.playing = False
+        window.player.stop()
 
     util.sockets.ws_server.stop_server()
 
