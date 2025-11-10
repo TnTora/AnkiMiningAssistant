@@ -92,7 +92,8 @@ def _stopMonitoring():
 if is_wayland:
     from util.platform_util import start_screencapture, stop_screencapture, set_sources
     def startMonitoring() -> None:
-        start_screencapture()
+        src_type = "MONITOR" if sessionsdb.current_session["use_screen_region"] else "WINDOW"
+        start_screencapture(src_type=src_type)
         _startMonitoring()
 
     def stopMonitoring():

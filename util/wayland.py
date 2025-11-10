@@ -42,7 +42,10 @@ class ScreenCast:
         self.session_token = "screencast_session_token"
         self.session_handle = None
         self.node_id = None
-        self.restore_token = restore_token
+        self.restore_token = {
+            "WINDOW": restore_token,
+            "MONITOR": None,
+        }
         self.conn = open_dbus_connection()
         self.sender_name = self.conn.unique_name[1:].replace(".", "_")
         self.session_open = False
@@ -65,13 +68,13 @@ class ScreenCast:
             self.close_session()
         self.conn.close()
 
-    def new_session(self):
+    def new_session(self, src_type: str = "WINDOW"):
 
         self.create_session()
 
-        self.select_sources()
+        self.select_sources(src_type)
 
-        self.start_session()
+        self.start_session(src_type)
 
         self.session_open = True
         return self.node_id, self.restore_token
@@ -116,18 +119,18 @@ class ScreenCast:
         self.session_handle = repl["session_handle"][1]
         print(f"{self.session_handle = }")
 
-    def select_sources(self, src_type: int = self.src_type["WINDOW"]):
+    def select_sources(self, src_type: str = "WINDOW"):
         options = {
             "handle_token": ("s", "select_sources"),
-            "types": ("u", src_type),
+            "types": ("u", self.src_type[src_type]),
             "persist_mode": ("u", 2),
         }
-        if self.restore_token is not None:
-            options["restore_token"] = ("s", self.restore_token)
+        if self.restore_token[src_type] is not None:
+            options["restore_token"] = ("s", self.restore_token[src_type])
         repl = self.call_method(token="select_sources", method_name="SelectSources", signature="oa{sv}", options=(self.session_handle, options))
         print("Selected Source")
 
-    def start_session(self):
+    def start_session(self, src_type: str = "WINDOW"):
         options = {
             "handle_token": ("s", "start"),
         }
@@ -136,7 +139,7 @@ class ScreenCast:
         self.node_id = repl["streams"][1][0][0]
 
         if "restore_token" in repl:
-            self.restore_token = repl["restore_token"][1]
+            self.restore_token[src_type] = repl["restore_token"][1]
 
         print(f"{self.node_id = }")
 
@@ -403,13 +406,16 @@ def capture_screenshot(save_path: str | None = None, win = None, screen_region: 
     return container
 
 def set_sources():
+    if screencast.session_open:
+        # TODO: inform user
+        return
     screencast.restore_token = None
     screencast.new_session()
     screencast.close_session()
 
-def start_screencapture():
+def start_screencapture(src_type: str = "WINDOW"):
     global pipewire_stream  # noqa: PLW0603
-    screencast.new_session()
+    screencast.new_session(src_type)
     obj_serial = get_obj_serial(screencast.node_id)
     pipewire_stream = PipewireStream(obj_serial)
     pipewire_stream.start()
