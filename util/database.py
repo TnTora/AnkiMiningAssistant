@@ -210,10 +210,9 @@ class AudioDB:
                 );""")
 
     def store_buffer_intervals(self, buffer):
+        if buffer is None or len(buffer) == 0:
+            return
         with closing(sqlite3.connect(self.path)) as conn:
-            if len(buffer) == 0:
-                return
-
             with conn:
 
                 conn.execute("""
@@ -242,6 +241,8 @@ class AudioDB:
                     """, ("interval", temp_audio.getbuffer(), interval.vad, interval.timestamp))
 
     def store_inactive_intervals(self, buffer):
+        if buffer is None or len(buffer) == 0:
+            return
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 conn.execute("DELETE FROM inactive_intervals;")
