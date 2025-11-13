@@ -144,6 +144,63 @@ class ScreenCast:
         print(f"{self.node_id = }")
 
 
+class ScreenShot:
+
+    src_type = {
+        "MONITOR": 1,
+        "WINDOW": 2,
+    }
+
+    def __init__(self):
+        self.portal = DBusAddress(
+            object_path="/org/freedesktop/portal/desktop",
+            bus_name="org.freedesktop.portal.Desktop",
+        )
+        self.screenshot = self.portal.with_interface("org.freedesktop.portal.Screenshot")
+        self.handle_token = "screenshot_handle_token"
+
+    def grab(self):
+        conn = open_dbus_connection()
+        sender_name = conn.unique_name[1:].replace(".", "_")
+        print(f"{sender_name = }")
+
+        handle = f"/org/freedesktop/portal/desktop/request/{sender_name}/{self.handle_token}"
+
+        response_rule = MatchRule(
+            type="signal", interface="org.freedesktop.portal.Request", path=handle
+        )
+        Proxy(message_bus, conn).AddMatch(response_rule)
+
+        options = {
+            "handle_token": ("s", self.handle_token),
+            "modal": ("b", True),
+            "interactive": ("b", False)
+        }
+
+        with conn.filter(response_rule) as responses:
+            req = new_method_call(
+                self.screenshot,
+                "Screenshot",
+                "sa{sv}",
+                ("", options),
+            )
+            conn.send_and_get_reply(req)
+            response_msg = conn.recv_until_filtered(responses)
+
+        response, results = response_msg.body
+        conn.close()
+
+        if response != 0:
+            # raise exception for failure
+            # TODO: create custom error and/or decide wheter to retry or close the connection
+            msg = f"Screenshot failed."
+            raise Exception(msg)
+        print(f"{results = }")
+        filepath = results["uri"][1].split("file://", 1)[-1]
+        img = Image.open(filepath)
+        # remove original file
+        os.remove(filepath)
+        return img
 
 # -------- retrieve obj serial from node id --------------
 
@@ -372,19 +429,25 @@ pipewire_stream = None
 def capture_screenshot(save_path: str | None = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
     container = save_path or BytesIO()
 
-    if pipewire_stream is None or pipewire_stream.curr_frame is None:
-        return None
+    # if pipewire_stream is None or pipewire_stream.curr_frame is None:
+    #     return None
 
     # print(f"{pipewire_stream.curr_frame.chunk = }, {pipewire_stream.curr_frame.data = }, {(pipewire_stream.width, pipewire_stream.height) = }")
 
-    # construct Image from the data obtained using pipewire
-    img = Image.frombytes(
-        "RGB",
-        (pipewire_stream.width, pipewire_stream.height),
-        bytes(pipewire.ffi.buffer(pipewire_stream.curr_frame.data, pipewire_stream.curr_frame.chunk.size)),
-        "raw",
-        "BGRX"
-    )
+    if settings.general.last_session == "Manual":
+        img = screenshot.grab()
+    elif not(pipewire_stream is None or pipewire_stream.curr_frame is None):
+        # construct Image from the data obtained using pipewire
+        # TODO: get format from pipewire
+        img = Image.frombytes(
+            "RGB",
+            (pipewire_stream.width, pipewire_stream.height),
+            bytes(pipewire.ffi.buffer(pipewire_stream.curr_frame.data, pipewire_stream.curr_frame.chunk.size)),
+            "raw",
+            "BGRX"
+        )
+    else:
+        return None
 
     if screen_region:  # noqa: SIM108
         img = img.crop(screen_region)
@@ -409,7 +472,7 @@ def set_sources():
     if screencast.session_open:
         # TODO: inform user
         return
-    screencast.restore_token = None
+    screencast.restore_token["WINDOW"] = None
     screencast.new_session()
     screencast.close_session()
 
