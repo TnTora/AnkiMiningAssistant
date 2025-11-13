@@ -28,14 +28,19 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
+import sys
 from PIL import Image
 from PIL.ImageQt import ImageQt
 
 from audio_bar import AudioBar
 
-from player import Player_Worker, PlayerState
 from util.screenshot import ImageStored
 from util.audio import AudioBuffer
+
+if sys.platform == "win32":
+    from player_sd import PlayerState, Player_Worker
+else:
+    from player import PlayerState, Player_Worker
 
 
 class AlertDialog(QDialog):

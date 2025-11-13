@@ -16,14 +16,14 @@ from util.database import audiodb, AudioSettings, GeneralSettings, sessionsdb
 
 if sys.platform == "darwin":
     from util.AggregateDevice import isloopback
-    def _isloopback(mic):
-        return isloopback(mic.id)
+    def _isloopback(audio_input):
+        return isloopback(audio_input.id)
 else:
-    def _isloopback(mic):
-        return mic.isloopback
+    def _isloopback(audio_input):
+        return audio_input.isloopback
 
 monitoringAudio = None
-mic = None
+audio_input = None
 buffer = None
 secondary_buffer = None
 record_audio_buffer = None
@@ -115,6 +115,11 @@ class AudioBuffer:
 
             if len(leftover_array) == blocksize:
                 yield leftover_array, interval_idx
+                leftover_array = np.empty((0, audio_buffer.channels))
+            else:
+                # if blocksize > len(interval.data) the contents of the interval have already been appended
+                interval_idx += 1
+                continue
 
             for i in range(start_idx, end_idx, blocksize):
                 yield interval.data[i:i+blocksize], interval_idx
@@ -125,8 +130,6 @@ class AudioBuffer:
                 leftover_array = interval.data[end_idx:]
                 if interval_idx == len(audio_buffer):
                     yield leftover_array, interval_idx
-            else:
-                leftover_array = np.empty((0, audio_buffer.channels))
 
     def slice_(self, start_idx=None, end_idx=None, step=None):
         return islice(self.deque, start_idx, end_idx, step)
@@ -263,19 +266,19 @@ class AudioBuffer:
         return data_copy, line_start, line_end
 
 
-def get_mics():
-    mikes = sc.all_microphones(include_loopback=True)
+def get_audio_inputs():
+    audio_inputs = sc.all_microphones(include_loopback=True)
     loopbacks = []
-    for i in range(len(mikes)):
-        loopback = _isloopback(mikes[i])
+    for i in range(len(audio_inputs)):
+        loopback = _isloopback(audio_inputs[i])
         if loopback:
             loopbacks.append(i)
-        stored_in_db = mikes[i].name == AudioSettings.mic
+        stored_in_db = audio_inputs[i].name == AudioSettings.audio_input
         if stored_in_db:
-            return mikes, i
+            return audio_inputs, i
     if loopbacks:
-        return mikes, loopbacks[0]
-    return mikes, None
+        return audio_inputs, loopbacks[0]
+    return audio_inputs, None
 
 
 class recordAudioBuffer(threading.Thread):
@@ -284,6 +287,9 @@ class recordAudioBuffer(threading.Thread):
         super().__init__()
         self.stop_rec = threading.Event()
         self.resume_rec = threading.Event()
+        self.blocksize = int(AudioSettings.samplerate*AudioSettings.interval_duration)
+        if sys.platform == "darwin":
+            self.blocksize = None
 
     def stop_recording(self):
         self.stop_rec.set()
@@ -294,7 +300,7 @@ class recordAudioBuffer(threading.Thread):
     def run(self):  # noqa: C901
         PAUSE = 0
         AudioBuffer.resume()
-        with mic.recorder(samplerate=AudioSettings.samplerate) as r:
+        with audio_input.recorder(samplerate=AudioSettings.samplerate, blocksize=self.blocksize) as r:
             while True:
 
                 if self.stop_rec.is_set():

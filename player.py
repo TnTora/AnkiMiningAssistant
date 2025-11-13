@@ -1,5 +1,6 @@
 from threading import Event, Thread
 import soundcard as sc
+import sys
 
 from PySide6.QtCore import (
     QObject,
@@ -9,10 +10,13 @@ from PySide6.QtCore import (
 from util import audio
 from util.database import settings
 
+platform = sys.platform
+
 
 class PlayerSignals(QObject):
 
     cursor_update = Signal(int)
+    playing_state_changed = Signal(bool)
 
 
 class PlayerState:
@@ -33,9 +37,10 @@ class PlayerState:
 
 
 class Player_Worker(Thread):
-    """Worker thread."""
+    """Player Worker thread."""
 
-    blocksize = 400
+    # on macOS, blocksize range might be limited
+    blocksize = 1 << 14 if platform == "win32" else 1 << 8 # 256
 
     def __init__(self, player_state: PlayerState, audio_buffer: audio.AudioBuffer | None = None):
         super().__init__()
@@ -48,6 +53,7 @@ class Player_Worker(Thread):
 
     def run(self):
         self.player_state.playing = True
+        self.player_state.signals.playing_state_changed.emit(True)
 
         if self.player_state.cursor == self.player_state.total_intervals:
             self.player_state.setCursor(0)
@@ -69,3 +75,4 @@ class Player_Worker(Thread):
                     self.player_state.setCursor(interval_idx)
 
         self.player_state.playing = False
+        self.player_state.signals.playing_state_changed.emit(False)

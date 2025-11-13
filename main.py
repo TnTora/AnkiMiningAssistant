@@ -65,7 +65,11 @@ from settings_gui import SettingsWindow
 
 from confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
-from player import PlayerState, Player_Worker
+if platform == "win32":
+    from player_sd import PlayerState, Player_Worker
+else:
+    from player import PlayerState, Player_Worker
+
 from RegionSelect import RegionSelect
 
 
@@ -122,7 +126,7 @@ class MainWindow(QMainWindow):
         self.with_lines_height = None
         self.apps = getAllApps()
         self.windows = None
-        self.mikes, preferred_idx = audio.get_mics()
+        self.audio_inputs, preferred_idx = audio.get_audio_inputs()
         self.player_state = PlayerState()
 
         self.audio_data = []
@@ -134,7 +138,7 @@ class MainWindow(QMainWindow):
         self.setFocus()
 
         """
-        Creating Widgets
+        ------------- Creating Widgets -------------------------------------------------------
         """
 
         self.session_box = QGroupBox("Session")
@@ -192,14 +196,12 @@ class MainWindow(QMainWindow):
             self.apps_windows_timer.timeout.connect(self.update_apps_windows)
             self.apps_windows_timer.start()
 
-        self.mic_sel_label = QLabel("Mic: ")
+        self.audio_input_sel_label = QLabel("Audio Input: ")
 
-        self.mic_select = QComboBox()
-        self.mic_select.addItems([mic.name for mic in self.mikes])
-        self.mic_select.currentIndexChanged.connect(self.set_mic)
-        if preferred_idx is not None:
-            self.mic_select.setCurrentIndex(preferred_idx)
-        self.set_mic(self.mic_select.currentIndex())
+        self.audio_input_select = QComboBox()
+        self.audio_input_select.addItems([audio_input.name for audio_input in self.audio_inputs])
+        self.audio_input_select.addItem("**No Input Selected**")
+        self.audio_input_select.currentIndexChanged.connect(self.set_audio_input)
 
         self.screen_region_check = QCheckBox("Use screen region: ")
         self.screen_region_check.checkStateChanged.connect(
@@ -312,9 +314,10 @@ class MainWindow(QMainWindow):
 
         self.monitoring_button = QPushButton("Start Monitoring")
         self.monitoring_button.released.connect(self.toggleMonitoring)
+        self.monitoring_button.setEnabled(False)
 
         """
-        Building Layout
+        ------------- Building Layout ----------------------------------------------------------------
         """
 
         self.session_box_layout = QVBoxLayout()
@@ -341,8 +344,8 @@ class MainWindow(QMainWindow):
             self.session_box_layout.addWidget(self.win_sel_label)
             self.session_box_layout.addWidget(self.window_select)
 
-        self.session_box_layout.addWidget(self.mic_sel_label)
-        self.session_box_layout.addWidget(self.mic_select)
+        self.session_box_layout.addWidget(self.audio_input_sel_label)
+        self.session_box_layout.addWidget(self.audio_input_select)
         self.session_box_layout.addLayout(self.screen_region_hbox)
         self.session_box_layout.addWidget(self.continuous_recording)
         self.session_box.setLayout(self.session_box_layout)
@@ -480,7 +483,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
 
         """
-        Extra setup
+        ------------- Extra setup --------------------------------------------------------------------
         """
 
         # Set session after creating othr widgets since they are
@@ -493,6 +496,12 @@ class MainWindow(QMainWindow):
             self.session_select.setCurrentIndex(tmp_idx)
         self.set_session(tmp_idx)
 
+        # set audio_input after creating monitoring button
+        if preferred_idx is not None:
+            self.audio_input_select.setCurrentIndex(preferred_idx)
+        else:
+            self.audio_input_select.setCurrentText("**No Input Selected**")
+
         util.sockets.socket_signals.ws_state.connect(self.update_ws_status)
         util.sockets.socket_signals.listener_state.connect(self.update_listener_status)
         util.sockets.socket_signals.line_received.connect(self.update_listwidget)
@@ -503,9 +512,13 @@ class MainWindow(QMainWindow):
         anki.anki_signals.note_update_select_line.connect(self.openLineSelectionDialog)
         anki.anki_signals.note_update_confirm.connect(self.openConfirmDialog)
 
-        # self.threadpool = QThreadPool()
         self.player = None
         self.player_state.signals.cursor_update.connect(self.updateSlider)
+        self.player_state.signals.playing_state_changed.connect(
+            lambda state: self.play_button.setText(
+                "Pause" if state else "Play"
+            )
+        )
 
         # Start the main websocket server and handle the connections that will listen for new lines
         util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
@@ -749,16 +762,24 @@ class MainWindow(QMainWindow):
             print(e)
             screenshot.win = None
 
-    def set_mic(self, index: int) -> None:
+    def set_audio_input(self, index: int) -> None:
         if index < 0:
             return
-        old_mic = audio.mic
-        audio.mic = self.mikes[index]
-        settings.update_option("audio", "mic", self.mikes[index].name)
-        if audio.buffer is None or old_mic != audio.mic:
-            audio.buffer = audio.AudioBuffer(channels=audio.mic.channels, is_primary=True)
-            audio.secondary_buffer = audio.AudioBuffer(channels=audio.mic.channels, max_time=0.5)
+
+        if self.audio_input_select.currentText() == "**No Input Selected**":
+            self.monitoring_button.setEnabled(False)
+            # audio.audio_input = None
+            return
+
+        old_audio_input = audio.audio_input
+        audio.audio_input = self.audio_inputs[index]
+        settings.update_option("audio", "audio_input", self.audio_inputs[index].name)
+        if audio.buffer is None or old_audio_input != audio.audio_input:
+            audio.buffer = audio.AudioBuffer(channels=audio.audio_input.channels, is_primary=True)
+            audio.secondary_buffer = audio.AudioBuffer(channels=audio.audio_input.channels, max_time=0.5)
             self.player_state.total_intervals = len(audio.buffer)
+
+        self.monitoring_button.setEnabled(True)
 
     def set_check_setting(self, state: Qt.CheckState, setting: str) -> None:
         if state == Qt.CheckState.Checked:
@@ -785,7 +806,7 @@ class MainWindow(QMainWindow):
             self.monitoring_button.setText("Stop Monitoring")
             self.av_monitoring = True
             self.play_button.setDisabled(True)
-            self.mic_select.setDisabled(True)
+            self.audio_input_select.setDisabled(True)
             self.screen_region_check.setDisabled(True)
             self.screen_region_button.setDisabled(True)
             startMonitoring()
@@ -794,7 +815,7 @@ class MainWindow(QMainWindow):
             self.monitoring_button.setText("Start Monitoring")
             self.av_monitoring = False
             self.play_button.setDisabled(False)
-            self.mic_select.setDisabled(False)
+            self.audio_input_select.setDisabled(False)
             self.screen_region_check.setDisabled(False)
             self.screen_region_button.setDisabled(False)
 
@@ -842,10 +863,10 @@ class MainWindow(QMainWindow):
 
     def playAudio(self) -> None:
         if self.player_state.playing:
-            self.play_button.setText("Play")
+            # self.play_button.setText("Play")
             self.player.stop()
         else:
-            self.play_button.setText("Pause")
+            # self.play_button.setText("Pause")
             self.player_state.total_intervals = len(audio.buffer)
             self.player = Player_Worker(self.player_state)
             self.player.start()
@@ -862,6 +883,7 @@ class MainWindow(QMainWindow):
             # self.play_button.setText("Play")
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
             self.player = Player_Worker(self.player_state)
+            # self.play_button.setText("Pause")
             self.player.start()
         self.player_state.signals.cursor_update.connect(self.updateSlider)
 

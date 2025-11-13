@@ -36,7 +36,7 @@ class AudioSettings:
     samplerate = 44100
     interval_duration = 512/16000
     inactivity_pause_timer = 10
-    mic = None
+    audio_input = None
     resume_on_detected_voice = False
     continuous_recording = False
     vad_threshold = 0.5

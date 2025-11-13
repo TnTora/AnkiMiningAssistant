@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
 )
 
-from util.audio import get_mics
+from util.audio import get_audio_inputs
 from util.database import settings
 
 
@@ -94,14 +94,14 @@ class AudioPage(QWidget):
         self.audio_input_combo.setMinimumWidth(150)
         self.audio_input_combo.setMaximumWidth(200)
 
-        AudioPage.settings_widgets["mic"] = self.audio_input_combo
+        AudioPage.settings_widgets["audio_input"] = self.audio_input_combo
 
-        self.audio_input_combo.addItems([mic.name for mic in get_mics()[0]])
+        self.audio_input_combo.addItems([audio_input.name for audio_input in get_audio_inputs()[0]])
 
         self.audio_input_combo.setCurrentIndex(-1)
 
-        if settings.audio.mic:
-            self.audio_input_combo.setCurrentText(settings.audio.mic)
+        if settings.audio.audio_input:
+            self.audio_input_combo.setCurrentText(settings.audio.audio_input)
 
         """
         Building Layout
