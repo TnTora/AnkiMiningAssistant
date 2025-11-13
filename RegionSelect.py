@@ -3,6 +3,7 @@ from PySide6.QtCore import (
     Qt,
     QRect,
     QPoint,
+    Signal,
 )
 from PySide6.QtGui import QGuiApplication, QPainter, QColor, QPen, QBrush
 from PySide6.QtWidgets import (
@@ -13,20 +14,24 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
+import sys
 from util.database import sessionsdb
 
 
 class RegionSelect(QWidget):
+    cancelled = Signal()
 
     def __init__(self, x=None, y=None, w=None, h=None):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         screen_geometry = QGuiApplication.primaryScreen().geometry()
+        self.pixel_ratio = QGuiApplication.primaryScreen().devicePixelRatio()
         self.setGeometry(screen_geometry)
         self.setFixedSize(screen_geometry.size())
 
         self.available_geometry = QGuiApplication.primaryScreen().availableGeometry()
+        # print(f"{screen_geometry = }\n{self.available_geometry = }")
 
         x = x or self.available_geometry.x()
         y = y or self.available_geometry.y()
@@ -44,7 +49,7 @@ class RegionSelect(QWidget):
         )
 
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.close)
+        self.cancel_button.clicked.connect(self.cancel)
 
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_selection)
@@ -58,6 +63,10 @@ class RegionSelect(QWidget):
         self.buttons.setLayout(self.buttons_layout)
 
         self.adjust_selection_box()
+
+    def cancel(self):
+        self.cancelled.emit()
+        self.close()
 
     def reset_selection(self, x, y, w, h):
         """Return selection to its initial position."""
@@ -73,7 +82,11 @@ class RegionSelect(QWidget):
     def save_selection(self):
         # use self.selection.normalized() when getting selection
         # to make sure the rect as positive width and height
-        sessionsdb.current_session["screen_region"] = self.selection.normalized().getCoords()
+        coords = self.selection.normalized().getCoords()
+        if sys.platform != "darwin":
+            coords = tuple(int(a*self.pixel_ratio) for a in coords)
+        # print(f"{self.pixel_ratio = }; {coords = }")
+        sessionsdb.current_session["screen_region"] = coords
         self.close()
 
     def adjust_selection_box(self):

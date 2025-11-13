@@ -518,8 +518,12 @@ class MainWindow(QMainWindow):
         self.settings_window.show()
 
     def open_screen_region(self) -> None:
+        def handle_cancel():
+            if sessionsdb.current_session["screen_region"] == (0, 0, 0, 0):
+                self.screen_region_check.setChecked(False)
         x1, y1, x2, y2 = sessionsdb.current_session["screen_region"]
         self.screen_region_window = RegionSelect(x1, y1, x2-x1, y2-y1)
+        self.screen_region_window.cancelled.connect(handle_cancel)
         self.screen_region_window.show()
 
     @Slot(str, int)
