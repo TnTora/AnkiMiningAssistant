@@ -72,7 +72,7 @@ def getAppWindows(app):
 def _getFilteredAppsPid():
     apps_pid = set()
 
-    def winEnumHandler(hwnd: int, ctx: Any):
+    def winEnumHandler(hwnd: int, ctx):
         if not win32gui.IsWindowVisible(hwnd):
             return True
 
@@ -115,7 +115,7 @@ def capture_screenshot(save_path: str | None = None, win: Window | None = None, 
     if screen_region:
         img = ImageGrab.grab(bbox=screen_region)
     elif win:
-        img = ImageGrab.grab(window=win.getHandle())
+        img = ImageGrab.grab(window=win.hwnd)
     else:
         # TODO: inform user neither win not screen_region are set
         return None
