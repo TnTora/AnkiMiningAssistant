@@ -1,20 +1,23 @@
 import sys
 from datetime import datetime
+from time import sleep
 
 from PySide6.QtGui import (
     QFont,
     QIcon,
-    # QPalette,
+    QPalette,
 )
 from PySide6.QtCore import (
-    QCoreApplication,
+    # QCoreApplication,
     QItemSelectionModel,
     QSize,
     Qt,
-    # QThreadPool,
-    # Slot,
+    QThreadPool,
+    QRunnable,
     QTimer,
     Slot,
+    QObject,
+    Signal,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -117,6 +120,65 @@ class SelectionError(Exception):
         super().__init__(self.message)
 
 
+class UpdateSignals(QObject):
+    update = Signal(list, list, object, object, bool)
+
+class UpdateWorker(QRunnable):
+
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+        self.signals = UpdateSignals()
+        self.stop_event = False
+
+    def stop(self):
+        self.stop_event = True
+
+    @Slot()
+    def run(self):
+        try:
+            while not self.stop_event:
+                self.update_apps_windows()
+                sleep(1)
+        except RuntimeError:
+            self.stop()
+
+    def update_apps_windows(self):
+        """Update apps and windows selection QComboBox."""
+        if self.parent.app_select.view().isVisible() or self.parent.window_select.view().isVisible():
+            return
+
+        if sessionsdb.current_session["use_screen_region"]:
+            return
+
+        if self.parent.app_select.currentIndex() < 0:
+            self.parent.apps = getAllApps()
+            app_names = [a.localizedName() for a in self.parent.apps]
+            self.signals.update.emit(app_names, [], -1, "", False)
+        else:
+            curr_text_app = self.parent.app_select.currentText()
+            self.parent.apps = getAllApps()
+            app_names = [a.localizedName() for a in self.parent.apps]
+
+            if curr_text_app not in app_names:
+                self.signals.update.emit(app_names, [], curr_text_app, "", False)
+                return
+
+            self.signals.update.emit(app_names, [], curr_text_app, "", True)
+
+            curr_text_window = self.parent.window_select.currentText()
+            curr_window_idx = self.parent.window_select.currentIndex()
+
+            self.parent.windows = getAppWindows(self.parent.apps[self.parent.app_select.currentIndex()])
+            win_titles = [w.title for w in self.parent.windows]
+
+            if curr_text_window not in [*win_titles, "**No Window Selected**"]:
+                self.signals.update.emit([], win_titles, "", curr_text_window, False)
+                return
+
+            self.signals.update.emit([], win_titles, "", curr_text_window, True)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):  # noqa: PLR0915
         super().__init__()
@@ -185,16 +247,17 @@ class MainWindow(QMainWindow):
         self.win_sel_label = QLabel("Window: ")
 
         self.window_select = QComboBox()
+        self.window_select.addItem("**No Window Selected**")
         self.window_select.activated.connect(self.set_window)
 
         if is_wayland:
             self.select_source_button = QPushButton("Select Source")
             self.select_source_button.clicked.connect(set_sources)
         else:
-            self.apps_windows_timer = QTimer(self)
-            self.apps_windows_timer.setInterval(1000)
-            self.apps_windows_timer.timeout.connect(self.update_apps_windows)
-            self.apps_windows_timer.start()
+            self.threadpool = QThreadPool()
+            self.update_worker = UpdateWorker(self)
+            self.threadpool.start(self.update_worker)
+            self.update_worker.signals.update.connect(self.update_apps_windows)
 
         self.audio_input_sel_label = QLabel("Audio Input: ")
 
@@ -302,10 +365,10 @@ class MainWindow(QMainWindow):
         self.listwidget.setSpacing(10)
         self.listwidget.setWordWrap(True)
         self.listwidget.setMinimumHeight(1)
+        # self.listwidget.setAlternatingRowColors(True)
         # self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
         self.listwidget.addItems([line.text for line in util.sockets.text_stored])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        # self.listwidget.itemSelectionChanged.connect(self.changedSelection)
         self.listwidget.itemSelectionChanged.connect(self.update_selected_lines)
 
         if not self.lines_shown:
@@ -435,7 +498,7 @@ class MainWindow(QMainWindow):
                 border: 1px solid #e28204;
             }}
             QCheckBox:!enabled{{
-                color: #cccccc;
+                color: {self.palette().color(QPalette.ColorRole.Text).name()};
             }}
         """
 
@@ -593,57 +656,26 @@ class MainWindow(QMainWindow):
         tmp_idx = tuple(tmp_idx)
         util.sockets.selected_idxs = tmp_idx
 
-    def update_apps_windows(self):
+    @Slot(list, list, object, object, bool)
+    def update_apps_windows(self, app_names, win_titles, app_name, win_name, is_open):
         """Update apps and windows selection QComboBox."""
-        if self.app_select.view().isVisible() or self.window_select.view().isVisible():
-            return
-
-        if sessionsdb.current_session["use_screen_region"]:
-            return
-
-        if self.app_select.currentIndex() < 0:
-            self.apps = getAllApps()
+        if app_names:
             self.app_select.clear()
-            self.app_select.addItems([a.localizedName() for a in self.apps])
-            self.app_select.setCurrentIndex(-1)
-        else:
-            curr_text_app = self.app_select.currentText()
-            old_apps = self.apps
-            self.apps = getAllApps()
-            self.app_select.clear()
-            app_names = [a.localizedName() for a in self.apps]
             self.app_select.addItems(app_names)
-
-            if curr_text_app not in app_names:
+            if is_open:
+                self.app_select.setCurrentText(app_name)
+            else:
                 self.app_select.setCurrentIndex(-1)
-                self.window_select.clear()
-                return
 
-            self.app_select.setCurrentText(curr_text_app)
-
-            # Check if this app windows are found to avoid removing windows
-            # when changing Space if finding windows in all spaces is not possible
-            # windows_check = getAppWindows(QCoreApplication.applicationPid(), brute_force=False)
-            # print(f"windows_check: {windows_check}")
-
-            # print(f"idx: {self.window_select.currentIndex()}", *self.windows, sep="\n")
-
-            curr_text_window = self.window_select.currentText()
-            # found_private = self.windows[self.window_select.currentIndex()].found_private if curr_text_window != "**No Window Selected**" else True
-
-            # if not (windows_check or found_private):
-            #     return
-
-            self.windows = getAppWindows(self.apps[self.app_select.currentIndex()])
+        if win_titles:
             self.window_select.clear()
-            win_titles = [w.title for w in self.windows]
             self.window_select.addItems(win_titles)
             self.window_select.addItem("**No Window Selected**")
-            if curr_text_window not in [*win_titles, "**No Window Selected**"]:
+            if is_open:
+                self.window_select.setCurrentText(win_name)
+            else:
                 self.window_select.setCurrentText("**No Window Selected**")
                 self.set_window(None)
-                return
-            self.window_select.setCurrentText(curr_text_window)
 
     def add_session(self) -> None:
         new_session_name = str(datetime.now())
@@ -759,7 +791,8 @@ class MainWindow(QMainWindow):
         except (KeyError, IndexError, TypeError) as e:
             # import traceback
             # traceback.print_exc()
-            print(e)
+            # print(e)
+            print("No Window Selected")
             screenshot.win = None
 
     def set_audio_input(self, index: int) -> None:
@@ -819,23 +852,6 @@ class MainWindow(QMainWindow):
             self.screen_region_check.setDisabled(False)
             self.screen_region_button.setDisabled(False)
 
-
-        # if audio.record_audio_buffer is None:
-        #     audio.record_audio_buffer = audio.recordAudioBuffer()
-        #     audio.record_audio_buffer.start()
-        # else:
-        #     audio.record_audio_buffer.stop_recording()
-        #     audio.record_audio_buffer.join()
-        #     audio.record_audio_buffer = None
-
-        # if screenshot.screenshot_manager is None:
-        #     screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
-        #     screenshot.screenshot_manager.start()
-        # else:
-        #     screenshot.screenshot_manager.stop_recording()
-        #     screenshot.screenshot_manager.join()
-        #     screenshot.screenshot_manager = None
-
     @Slot(str)
     def openAlertDialog(self, txt: str) -> None:
         alert = AlertDialog(txt)
@@ -887,9 +903,6 @@ class MainWindow(QMainWindow):
             self.player.start()
         self.player_state.signals.cursor_update.connect(self.updateSlider)
 
-    def changedSelection(self) -> None:
-        pass
-
     def toggle_lines(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
@@ -936,6 +949,8 @@ def main() -> None:
         window.raise_()
 
     app.exec()
+    if not is_wayland:
+        window.update_worker.stop()
 
     if aggr_id is not None:
         destroyAggregateDevice(aggr_id, tap_id)
