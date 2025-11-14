@@ -156,27 +156,25 @@ class UpdateWorker(QRunnable):
             app_names = [a.localizedName() for a in self.parent.apps]
             self.signals.update.emit(app_names, [], -1, "", False)
         else:
-            curr_text_app = self.parent.app_select.currentText()
             self.parent.apps = getAllApps()
             app_names = [a.localizedName() for a in self.parent.apps]
 
-            if curr_text_app not in app_names:
-                self.signals.update.emit(app_names, [], curr_text_app, "", False)
+            try:
+                curr_app_idx = self.parent.apps.index(self.parent.curr_app)
+                self.signals.update.emit(app_names, [], curr_app_idx, "", True)
+            except ValueError:
+                self.signals.update.emit(app_names, [], -1, "", False)
                 return
-
-            self.signals.update.emit(app_names, [], curr_text_app, "", True)
-
-            curr_text_window = self.parent.window_select.currentText()
-            curr_window_idx = self.parent.window_select.currentIndex()
 
             self.parent.windows = getAppWindows(self.parent.apps[self.parent.app_select.currentIndex()])
             win_titles = [w.title for w in self.parent.windows]
 
-            if curr_text_window not in [*win_titles, "**No Window Selected**"]:
-                self.signals.update.emit([], win_titles, "", curr_text_window, False)
+            try:
+                curr_win_idx = self.parent.windows.index(self.parent.curr_win)
+                self.signals.update.emit([], win_titles, "", curr_win_idx, True)
+            except ValueError:
+                self.signals.update.emit([], win_titles, "", -1, False)
                 return
-
-            self.signals.update.emit([], win_titles, "", curr_text_window, True)
 
 
 class MainWindow(QMainWindow):
@@ -187,7 +185,9 @@ class MainWindow(QMainWindow):
         self.lines_shown = False
         self.with_lines_height = None
         self.apps = getAllApps()
+        self.curr_app = None
         self.windows = None
+        self.curr_win = None
         self.audio_inputs, preferred_idx = audio.get_audio_inputs()
         self.player_state = PlayerState()
 
@@ -657,13 +657,13 @@ class MainWindow(QMainWindow):
         util.sockets.selected_idxs = tmp_idx
 
     @Slot(list, list, object, object, bool)
-    def update_apps_windows(self, app_names, win_titles, app_name, win_name, is_open):
+    def update_apps_windows(self, app_names, win_titles, app_idx, win_idx, is_open):
         """Update apps and windows selection QComboBox."""
         if app_names:
             self.app_select.clear()
             self.app_select.addItems(app_names)
             if is_open:
-                self.app_select.setCurrentText(app_name)
+                self.app_select.setCurrentIndex(app_idx)
             else:
                 self.app_select.setCurrentIndex(-1)
 
@@ -672,8 +672,8 @@ class MainWindow(QMainWindow):
             self.window_select.addItems(win_titles)
             self.window_select.addItem("**No Window Selected**")
             if is_open:
-                self.window_select.setCurrentText(win_name)
-            else:
+                self.window_select.setCurrentIndex(win_idx)
+            elif self.window_select.currentText() != "**No Window Selected**":
                 self.window_select.setCurrentText("**No Window Selected**")
                 self.set_window(None)
 
@@ -774,7 +774,10 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
 
-        sessionsdb.sessions_dict[settings.general.last_session]["AppName"] = self.apps[index].localizedName()
+        # sessionsdb.sessions_dict[settings.general.last_session]["AppName"] = self.apps[index].localizedName()
+        sessionsdb.current_session["AppName"] = self.apps[index].localizedName()
+        self.curr_app = self.apps[index]
+
         self.windows = getAppWindows(self.apps[index])
         self.window_select.clear()
         self.window_select.addItems([w.title for w in self.windows])
@@ -787,7 +790,9 @@ class MainWindow(QMainWindow):
             if index < 0:
                 return
             screenshot.win = self.windows[index]
-            sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index].title
+            # sessionsdb.sessions_dict[settings.general.last_session]["WindowTitle"] = self.windows[index].title
+            sessionsdb.current_session["WindowTitle"] = self.windows[index].title
+            self.curr_win = self.windows[index]
         except (KeyError, IndexError, TypeError) as e:
             # import traceback
             # traceback.print_exc()
@@ -816,20 +821,24 @@ class MainWindow(QMainWindow):
 
     def set_check_setting(self, state: Qt.CheckState, setting: str) -> None:
         if state == Qt.CheckState.Checked:
-            sessionsdb.sessions_dict[settings.general.last_session][setting] = True
+            # sessionsdb.sessions_dict[settings.general.last_session][setting] = True
+            sessionsdb.current_session[setting] = True
         else:
-            sessionsdb.sessions_dict[settings.general.last_session][setting] = False
+            # sessionsdb.sessions_dict[settings.general.last_session][setting] = False
+            sessionsdb.current_session[setting] = False
 
     def toggle_screen_region(self, state: Qt.CheckState) -> None:
         if state == Qt.CheckState.Checked:
-            sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = True
+            # sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = True
+            sessionsdb.current_session["use_screen_region"] = True
             self.app_select.setEnabled(False)
             self.window_select.setEnabled(False)
             self.set_window(None)
             if sessionsdb.current_session["screen_region"] == (0, 0, 0, 0):
                 self.open_screen_region()
         else:
-            sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = False
+            # sessionsdb.sessions_dict[settings.general.last_session]["use_screen_region"] = False
+            sessionsdb.current_session["use_screen_region"] = False
             self.app_select.setEnabled(True)
             self.window_select.setEnabled(True)
             self.set_window(self.window_select.currentIndex())
