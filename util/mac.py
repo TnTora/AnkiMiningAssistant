@@ -122,6 +122,7 @@ class Window:
     def get_title(self):
         if self.ax_win:
             return self.get_title_AX()
+        return self.get_title_CG()
 
     def get_title_AX(self):
         err, title = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXTitleAttribute, None)
@@ -256,10 +257,6 @@ def getAppAXWindows(app):
     windows = []
 
     for ax_win in ax_wins:
-        # err, title = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXTitleAttribute, None)
-        # if err:
-        #     # TODO: log
-        #     continue
         if not _has_win_subrole(ax_win):
             continue
         windows.append(Window(ax_win, app, found_public=True))
