@@ -428,21 +428,8 @@ try:
                 capture_target = shareable_content.displays()[0]
                 content_filter = SCContentFilter(display=capture_target, excludingWindows=[])
 
-            # adjust for high DPI
-            width = capture_target.frame().size.width*content_filter.pointPixelScale()
-            height = capture_target.frame().size.height*content_filter.pointPixelScale()
-
-            if max_resolution in resolutions:
-                resolution_limit = resolutions[max_resolution]
-                if width*height > resolution_limit:
-                    aspect_ratio = width/height
-                    height = sqrt(resolution_limit/aspect_ratio)
-                    width = aspect_ratio * height
-
             configuration = SCStreamConfiguration()
             configuration.setCapturesAudio_(False)
-            # configuration.setWidth_(width)
-            # configuration.setHeight_(height)
             configuration.setPreservesAspectRatio_(True)
             configuration.setShowsCursor_(False)
             configuration.setIgnoreShadowsSingleWindow_(True)
@@ -455,11 +442,22 @@ try:
                 x1, y1, x2, y2 = screen_region
                 # print(f"{CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)) = }")
                 configuration.setSourceRect_(CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)))
-                configuration.setWidth_(x2-x1)
-                configuration.setHeight_(y2-y1)
+                width = x2-x1
+                height = y2-y1
             else:
-                configuration.setWidth_(width)
-                configuration.setHeight_(height)
+                # adjust for high DPI scaling
+                width = capture_target.frame().size.width*content_filter.pointPixelScale()
+                height = capture_target.frame().size.height*content_filter.pointPixelScale()
+
+            if max_resolution in resolutions:
+                resolution_limit = resolutions[max_resolution]
+                if width*height > resolution_limit:
+                    aspect_ratio = width/height
+                    height = sqrt(resolution_limit/aspect_ratio)
+                    width = aspect_ratio * height
+
+            configuration.setWidth_(width)
+            configuration.setHeight_(height)
 
             SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(
                 content_filter, configuration, capture_image_completion_handler
