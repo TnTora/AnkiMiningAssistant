@@ -17,10 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 # from util.database import settings
-from general_settings import GeneralPage
-from anki_settings import AnkiPage
-from audio_settings import AudioPage
-from image_settings import ImagePage
+from .general_settings import GeneralPage
+from .anki_settings import AnkiPage
+from .audio_settings import AudioPage
+from .image_settings import ImagePage
 
 
 class SettingsWindow(QWidget):

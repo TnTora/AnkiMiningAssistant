@@ -32,7 +32,7 @@ import sys
 from PIL import Image
 from PIL.ImageQt import ImageQt
 
-from audio_bar import AudioBar
+from .audio_bar import AudioBar
 
 from util.screenshot import ImageStored
 from util.audio import AudioBuffer

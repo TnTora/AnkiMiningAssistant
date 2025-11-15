@@ -31,7 +31,7 @@ class RegionSelect(QWidget):
         self.setFixedSize(screen_geometry.size())
 
         self.available_geometry = QGuiApplication.primaryScreen().availableGeometry()
-        # print(f"{screen_geometry = }\n{self.available_geometry = }")
+        print(f"{screen_geometry = }\n{self.available_geometry = }")
 
         x = x or self.available_geometry.x()
         y = y or self.available_geometry.y()
@@ -85,7 +85,7 @@ class RegionSelect(QWidget):
         coords = self.selection.normalized().getCoords()
         if sys.platform != "darwin":
             coords = tuple(int(a*self.pixel_ratio) for a in coords)
-        # print(f"{self.pixel_ratio = }; {coords = }")
+        print(f"{self.pixel_ratio = }; {coords = }")
         sessionsdb.current_session["screen_region"] = coords
         self.close()
 

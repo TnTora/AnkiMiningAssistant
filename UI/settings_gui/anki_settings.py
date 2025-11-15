@@ -398,6 +398,7 @@ class AnkiPage(QWidget):
 
                 break
             except Exception:
+                # TODO: Log exception
                 pass
             finally:
                 sleep(0.3)
@@ -428,14 +429,21 @@ class AnkiPage(QWidget):
         tmp_note_types = list(self.note_types.keys())
         settings.update_option("anki", "note_types", tmp_note_types)
 
+        missing_fields = []
+
         for note in self.note_types_fields:
             for field, wdg in self.note_types_fields[note].items():
                 if field == "widget":
                     continue
                 tmp_text = wdg.currentText()
                 if not tmp_text:
+                    # TODO:inform user field has to be selected, raise custom exception
+                    missing_fields.append(field)
                     continue
                 tmp_fields[field.lower().replace(" ", "_")][note] = tmp_text
+
+        if missing_fields:
+            return missing_fields
 
         for field, value in tmp_fields.items():
             settings.update_option("anki", field, value)

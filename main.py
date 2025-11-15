@@ -64,16 +64,16 @@ import util.sockets
 from util import audio
 from util import screenshot
 
-from settings_gui import SettingsWindow
+from UI.settings_gui import SettingsWindow
 
-from confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
+from UI.custom_widgets.confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
 if platform == "win32":
     from player_sd import PlayerState, Player_Worker
 else:
     from player import PlayerState, Player_Worker
 
-from RegionSelect import RegionSelect
+from UI.custom_widgets import RegionSelect
 
 
 def _startMonitoring() -> None:
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
 
         # self.rec_screen_button = QPushButton("Screenshot")
         self.rec_screen_button = QToolButton()
-        self.rec_screen_button.setIcon(QIcon("picture-1.png"))
+        self.rec_screen_button.setIcon(QIcon("assets/screenshot_button.png"))
         self.rec_screen_button.setIconSize(QSize(25, 25))
         self.rec_screen_button.setMinimumWidth(40)
         self.rec_screen_button.setMinimumHeight(40)
@@ -296,7 +296,7 @@ class MainWindow(QMainWindow):
 
         # self.rec_audio_button = QPushButton("Audio")
         self.rec_audio_button = QToolButton()
-        self.rec_audio_button.setIcon(QIcon("voice-recording-1.png"))
+        self.rec_audio_button.setIcon(QIcon("assets/audio_button.png"))
         self.rec_audio_button.setIconSize(QSize(25, 25))
         self.rec_audio_button.setMinimumWidth(40)
         self.rec_audio_button.setMinimumHeight(40)
@@ -305,7 +305,7 @@ class MainWindow(QMainWindow):
         )
 
         self.rec_both_button = QToolButton()
-        self.rec_both_button.setIcon(QIcon("audio-pic-1.png"))
+        self.rec_both_button.setIcon(QIcon("assets/screenshot_audio_button.png"))
         self.rec_both_button.setIconSize(QSize(30, 30))
         self.rec_both_button.setMinimumWidth(40)
         self.rec_both_button.setMinimumHeight(40)
