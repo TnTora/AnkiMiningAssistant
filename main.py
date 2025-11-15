@@ -673,8 +673,10 @@ class MainWindow(QMainWindow):
             self.window_select.addItem("**No Window Selected**")
             if is_open:
                 self.window_select.setCurrentIndex(win_idx)
-            elif self.window_select.currentText() != "**No Window Selected**":
+            else:
                 self.window_select.setCurrentText("**No Window Selected**")
+                if self.curr_win is None:
+                    return
                 self.set_window(None)
 
     def add_session(self) -> None:
@@ -720,7 +722,6 @@ class MainWindow(QMainWindow):
         self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
         self.open_in_browser_check.setChecked(sessionsdb.current_session["open_in_browser"])
         self.preview_note_check.setChecked(sessionsdb.current_session["preview_note"])
-        self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
         if settings.general.last_session == "Manual":
             self.auto_update_check.setEnabled(False)
@@ -769,6 +770,8 @@ class MainWindow(QMainWindow):
             self.set_window(self.window_select.currentIndex())
         except SelectionError as e:
             print(e)
+        finally:
+            self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
     def set_app(self, index: int) -> None:
         if index < 0:
@@ -799,6 +802,8 @@ class MainWindow(QMainWindow):
             # print(e)
             print("No Window Selected")
             screenshot.win = None
+            self.curr_win = None
+
 
     def set_audio_input(self, index: int) -> None:
         if index < 0:
