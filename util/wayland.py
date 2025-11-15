@@ -9,6 +9,9 @@ from PIL import Image
 
 import pipewire
 import threading
+import os
+
+from util.database import settings
 
 
 def getAppWindows(app):
@@ -424,6 +427,7 @@ class PipewireStream(threading.Thread):
 # --------- function called from util.screenshot --------------
 
 screencast = ScreenCast(restore_token=None)
+screenshot = ScreenShot()
 pipewire_stream = None
 
 def capture_screenshot(save_path: str | None = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
