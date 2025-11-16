@@ -80,6 +80,15 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = N
 
         screen_region = sessionsdb.current_session["screen_region"] if sessionsdb.current_session["use_screen_region"] else None
 
+        if screen_region and ImageSettings.pixel_ratio:
+            offsets = (
+                ImageSettings.offsets["x"],
+                ImageSettings.offsets["y"],
+                ImageSettings.offsets["x"],
+                ImageSettings.offsets["y"],
+            )
+            screen_region = tuple(int(ImageSettings.pixel_ratio*(a+b)) for a, b in zip(screen_region, offsets, strict=True))
+
         tmp_img = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
 
         if isinstance(tmp_img, BytesIO):

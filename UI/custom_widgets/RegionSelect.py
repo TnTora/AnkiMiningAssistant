@@ -25,13 +25,13 @@ class RegionSelect(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        screen_geometry = QGuiApplication.primaryScreen().geometry()
+        self.screen_geometry = QGuiApplication.primaryScreen().geometry()
         self.pixel_ratio = QGuiApplication.primaryScreen().devicePixelRatio()
-        self.setGeometry(screen_geometry)
-        self.setFixedSize(screen_geometry.size())
+        self.setGeometry(self.screen_geometry)
+        self.setFixedSize(self.screen_geometry.size())
 
         self.available_geometry = QGuiApplication.primaryScreen().availableGeometry()
-        print(f"{screen_geometry = }\n{self.available_geometry = }")
+        print(f"{self.screen_geometry = }\n{self.available_geometry = }")
 
         x = x or self.available_geometry.x()
         y = y or self.available_geometry.y()
@@ -39,6 +39,7 @@ class RegionSelect(QWidget):
         h = h or self.available_geometry.height()/2
 
         self.selection  = QRect(x, y, w, h)
+        self.selection_color = QColor(0, 0, 0, 100)
 
         self.pressed = ""
         self.old_mouse_pos = None
@@ -83,8 +84,8 @@ class RegionSelect(QWidget):
         # use self.selection.normalized() when getting selection
         # to make sure the rect as positive width and height
         coords = self.selection.normalized().getCoords()
-        if sys.platform != "darwin":
-            coords = tuple(int(a*self.pixel_ratio) for a in coords)
+        # if sys.platform != "darwin":
+        #     coords = tuple(int(a*self.pixel_ratio) for a in coords)
         print(f"{self.pixel_ratio = }; {coords = }")
         sessionsdb.current_session["screen_region"] = coords
         self.close()
@@ -210,7 +211,7 @@ class RegionSelect(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode_Source)
         painter.fillRect( 0, 0, self.width(), self.height(), QColor(0, 0, 0, 200))
         painter.setPen(QPen(QColor(255, 0, 0), 1))
-        painter.setBrush(QBrush(QColor(0, 0, 0, 100)))
+        painter.setBrush(QBrush(self.selection_color))
         painter.drawRect(self.selection)
         # painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         painter.end()

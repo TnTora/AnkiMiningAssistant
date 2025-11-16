@@ -49,6 +49,11 @@ class ImageSettings:
     webp_quality = 80
     max_resolution = "1080p"
     capture_interval = 1
+    pixel_ratio = None
+    offsets = {
+        "x": 0,
+        "y": 0,
+    }
 
 
 def get_attributes(class_):

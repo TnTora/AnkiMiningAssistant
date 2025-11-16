@@ -73,7 +73,7 @@ if platform == "win32":
 else:
     from player import PlayerState, Player_Worker
 
-from UI.custom_widgets import RegionSelect
+from UI.custom_widgets import RegionSelect, CalibrationDialog
 
 
 def _startMonitoring() -> None:
@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings_window = None
         self.screen_region_window = None
+        self.calibration_window = None
         self.lines_shown = False
         self.with_lines_height = None
         self.apps = getAllApps()
@@ -199,9 +200,9 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
 
-        """
-        ------------- Creating Widgets -------------------------------------------------------
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Creating Widgets -------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.session_box = QGroupBox("Session")
         self.session_box.setFixedWidth(280)
@@ -379,9 +380,9 @@ class MainWindow(QMainWindow):
         self.monitoring_button.released.connect(self.toggleMonitoring)
         self.monitoring_button.setEnabled(False)
 
-        """
-        ------------- Building Layout ----------------------------------------------------------------
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Building Layout --------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.session_box_layout = QVBoxLayout()
         self.session_box_layout.setSpacing(5)
@@ -545,9 +546,9 @@ class MainWindow(QMainWindow):
         widget.setLayout(self.main_layout)
         self.setCentralWidget(widget)
 
-        """
-        ------------- Extra setup --------------------------------------------------------------------
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Extra setup ------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         # Set session after creating othr widgets since they are
         # used in set_session
@@ -594,13 +595,19 @@ class MainWindow(QMainWindow):
         self.settings_window.show()
 
     def open_screen_region(self) -> None:
+
         def handle_cancel():
             if sessionsdb.current_session["screen_region"] == (0, 0, 0, 0):
                 self.screen_region_check.setChecked(False)
-        x1, y1, x2, y2 = sessionsdb.current_session["screen_region"]
-        self.screen_region_window = RegionSelect(x1, y1, x2-x1, y2-y1)
-        self.screen_region_window.cancelled.connect(handle_cancel)
-        self.screen_region_window.show()
+
+        if is_wayland and settings.image.pixel_ratio is None:
+            self.calibration_window = CalibrationDialog()
+            self.calibration_window.show()
+        else:
+            x1, y1, x2, y2 = sessionsdb.current_session["screen_region"]
+            self.screen_region_window = RegionSelect(x1, y1, x2-x1, y2-y1)
+            self.screen_region_window.cancelled.connect(handle_cancel)
+            self.screen_region_window.show()
 
     @Slot(str, int)
     def update_listener_status(self, url: str, state: int) -> None:
@@ -892,6 +899,8 @@ class MainWindow(QMainWindow):
         anki.anki_signals.wait_event.set()
 
     def playAudio(self) -> None:
+        if audio.buffer is None:
+            return
         if self.player_state.playing:
             # self.play_button.setText("Play")
             self.player.stop()
