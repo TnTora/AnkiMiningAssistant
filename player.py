@@ -40,7 +40,7 @@ class Player_Worker(Thread):
     """Player Worker thread."""
 
     # on macOS, blocksize range might be limited
-    blocksize = 1 << 14 if platform == "win32" else 1 << 8 # 256
+    blocksize = 1 << 14 if platform == "win32" else 1 << 9 # 512
 
     def __init__(self, player_state: PlayerState, audio_buffer: audio.AudioBuffer | None = None):
         super().__init__()
