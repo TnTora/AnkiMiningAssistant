@@ -1,3 +1,8 @@
+# CoreAudio Taps references:
+# https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps?language=objc
+# https://gist.github.com/directmusic/7d653806c24fe5bb8166d12a9f4422de
+# Using objective c classes with objc framework: https://stackoverflow.com/a/1490644
+
 import cffi
 
 _ffi = cffi.FFI()
@@ -96,9 +101,6 @@ _ca = _ffi.dlopen("CoreAudio")
 _cf = _ffi.dlopen("CoreFoundation")
 _objc = _ffi.dlopen("objc")
 
-# aggr_id = None
-# tap_id = None
-
 
 def str_to_CFString(python_string):
     cstring = _ffi.new("char[]", bytes(python_string, "utf-8"))
@@ -122,8 +124,7 @@ kAudioObjectPropertyElementMaster = 0
 
 
 def createAggregateDevice():
-    # global tap_id, aggr_id
-    # Not sure if this is necessary
+    # Should avoid leaking memory when using objc
     NSAutoreleasePool = _objc.objc_getClass(b"NSAutoreleasePool")
     pool = _objc.objc_msgSend(NSAutoreleasePool, _objc.sel_registerName(b"alloc"))
     pool = _objc.objc_msgSend(pool, _objc.sel_registerName(b"init"))
@@ -133,6 +134,8 @@ def createAggregateDevice():
     YES = _objc.objc_msgSend(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", True))
     NO = _objc.objc_msgSend(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", False))
 
+    # Initialize array that contains processes that should not be
+    # captured. Leaving it empty will capture all system audio.
     NSArray = _objc.objc_getClass(b"NSArray")
     processes = _objc.objc_msgSend(NSArray, _objc.sel_registerName(b"alloc"))
     processes = _objc.objc_msgSend(processes, _objc.sel_registerName(b"init"))
@@ -168,8 +171,12 @@ def createAggregateDevice():
     aggr_id = _ffi.new("UInt32*")
     stat = _ca.AudioHardwareCreateAggregateDevice(aggregate_device_dict, aggr_id)
 
+    _objc.objc_msgSend(NSAutoreleasePool, _objc.sel_registerName(b"release"))
+
     if stat == 0:
         return aggr_id[0], tap_id[0]
+    print(f"'AudioHardwareCreateAggregateDevice' Error Status: {stat}")
+    _ca.AudioHardwareDestroyProcessTap(tap_id[0])
     return None, None
 
 
