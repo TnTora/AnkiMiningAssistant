@@ -28,18 +28,6 @@ class SettingsWindow(QWidget):
     def __init__(self):  # noqa: PLR0915
         super().__init__()
 
-        # self.setStyleSheet("""
-        #     QToolButton {
-        #         border: 1px solid #8f8f91;
-        #         border-radius: 6px;
-        #         background-color: gray;
-        #     }
-
-        #     QToolButton:pressed {
-        #         background-color: #999999;
-        #     }
-        # """)
-
         self.setWindowTitle("Settings")
         self.setMinimumWidth(660)
         self.setMinimumHeight(390)
@@ -169,8 +157,6 @@ class SettingsWindow(QWidget):
         self.window_layout.addWidget(self.sidebar)
         self.window_layout.addLayout(self.settings_layout)
 
-        # self.central_widget = QWidget()
-        # self.central_widget.setLayout(self.window_layout)
         self.setLayout(self.window_layout)
 
     def update_settings(self):

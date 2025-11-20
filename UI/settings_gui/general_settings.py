@@ -18,33 +18,28 @@ from PySide6.QtWidgets import (
 )
 
 from util.database import settings
+from .custom_widgets import SettingItem, SettingsPage
 
 
-class GeneralPage(QWidget):
-
-    label_style = "font-size:13pt;"
-    info_style = """
-            font-size:9pt;
-            font-weight:bold;
-            color: #b4b4b4;
-        """
-
-    label_info_spacing = 4
+class GeneralPage(SettingsPage):
 
     settings_widgets = {}
 
-    def __init__(self):  # noqa: PLR0915
+    def __init__(self):
         super().__init__()
-
         self.setFocusPolicy(Qt.StrongFocus)
         self.setFocus()
 
-        self.buffer_label = QLabel("Buffer Length")
-        self.buffer_label.setStyleSheet(self.label_style)
+        # --------------------------------------------------------------------------------------
+        # ------ Creating Widgets --------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
-        self.buffer_info = QLabel("Amount of time to store audio, images and lines")
-        self.buffer_info.setWordWrap(True)
-        self.buffer_info.setStyleSheet(self.info_style)
+        # Buffer Length
+        self.buffer_item = SettingItem(
+            name="Buffer Length",
+            description="Amount of time to store audio, images and lines",
+        )
+
 
         self.buffer_spin = QSpinBox()
         self.buffer_spin.setMaximum(1800)
@@ -54,8 +49,11 @@ class GeneralPage(QWidget):
 
         GeneralPage.settings_widgets["storage_time_limit"] = self.buffer_spin
 
-        self.ws_port_label = QLabel("WebSocket Port")
-        self.ws_port_label.setStyleSheet(self.label_style)
+        # WebSocket Port
+        self.ws_port_item = SettingItem(
+            name="WebSocket Port",
+            description="PORT used to communicate with texthooker",
+        )
 
         self.ws_port_spin = QSpinBox()
         self.ws_port_spin.setMaximum(65535)
@@ -64,16 +62,12 @@ class GeneralPage(QWidget):
 
         GeneralPage.settings_widgets["ws_port"] = self.ws_port_spin
 
-        self.ws_port_info = QLabel("PORT used to communicate with texthooker")
-        self.ws_port_info.setWordWrap(True)
-        self.ws_port_info.setStyleSheet(self.info_style)
+        # WebSockets Listeners
+        self.listen_urls_item = SettingItem(
+            name="Listen To WebSockets",
+            description="URLs to listen to in order to receive text",
+        )
 
-        self.listen_urls_label = QLabel("Listen To WebSockets")
-        self.listen_urls_label.setStyleSheet(self.label_style)
-
-        self.listen_urls_info = QLabel("URLs to listen to in order to receive text")
-        self.listen_urls_info.setWordWrap(True)
-        self.listen_urls_info.setStyleSheet(self.info_style)
 
         self.listen_urls = {}
 
@@ -94,25 +88,9 @@ class GeneralPage(QWidget):
         self.add_url_button.setMinimumSize(QSize(23, 22))
         self.add_url_button.clicked.connect(self.add_listen_url)
 
-        """
-        Building Layout
-        """
-
-        self.buffer_layout = QVBoxLayout()
-        self.buffer_layout.setSpacing(self.label_info_spacing)
-        self.buffer_layout.addWidget(self.buffer_label)
-        self.buffer_layout.addWidget(self.buffer_info)
-
-        self.ws_port_layout = QVBoxLayout()
-        self.ws_port_layout.setSpacing(self.label_info_spacing)
-        self.ws_port_layout.addWidget(self.ws_port_label)
-        self.ws_port_layout.addWidget(self.ws_port_info)
-
-        self.listen_urls_layout = QVBoxLayout()
-        self.listen_urls_layout.setSpacing(self.label_info_spacing)
-        self.listen_urls_layout.addWidget(self.listen_urls_label, alignment=Qt.AlignTop)
-        self.listen_urls_layout.addWidget(self.listen_urls_info, alignment=Qt.AlignTop)
-        self.listen_urls_layout.setStretch(1, 1)
+        # --------------------------------------------------------------------------------------
+        # ------ Building Layout ---------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.urls_form = QFormLayout()
         self.urls_form.setContentsMargins(0, 0, 9, 0)
@@ -124,16 +102,16 @@ class GeneralPage(QWidget):
             self.urls_form.addRow(self.listen_urls[url][0], self.listen_urls[url][1])
         self.urls_form.addRow(self.new_url_edit, self.add_url_button)
 
-        self.main_layout = QGridLayout()
-        self.main_layout.setVerticalSpacing(30)
-        self.main_layout.addLayout(self.buffer_layout, 0, 0)
-        self.main_layout.addWidget(self.buffer_spin, 0, 1, alignment=Qt.AlignRight)
-        self.main_layout.addLayout(self.ws_port_layout, 1, 0)
-        self.main_layout.addWidget(self.ws_port_spin, 1, 1, alignment=Qt.AlignRight)
-        self.main_layout.addLayout(self.listen_urls_layout, 2, 0)
-        self.main_layout.addLayout(self.urls_form, 2, 1)
+        self.main_layout.addWidget(self.buffer_item, 0, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.buffer_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.setLayout(self.main_layout)
+        self.main_layout.addWidget(self.ws_port_item, 1, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.ws_port_spin, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+
+        self.main_layout.addWidget(self.listen_urls_item, 2, 0, alignment=Qt.AlignTop)
+        self.main_layout.addLayout(self.urls_form, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+
+        self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
 
     def add_listen_url(self):
         # TODO: Validate input

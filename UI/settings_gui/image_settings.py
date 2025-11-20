@@ -14,13 +14,16 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QLineEdit,
     QCheckBox,
+    QPushButton,
 )
 
 from PIL import WebPImagePlugin
 from util.database import settings
+from UI.custom_widgets import CalibrationDialog
+from .custom_widgets import SettingItem, SettingsPage
 
 
-class ImagePage(QWidget):
+class ImagePage(SettingsPage):
 
     label_style = "font-size:13pt;"
     info_style = """
@@ -33,11 +36,16 @@ class ImagePage(QWidget):
 
     settings_widgets = {}
 
-    def __init__(self):  # noqa: PLR0915
+    def __init__(self):
         super().__init__()
+        self.calibration_window = None
 
-        self.capture_interval_label = QLabel("Capture Interval")
-        self.capture_interval_label.setStyleSheet(self.label_style)
+        # --------------------------------------------------------------------------------------
+        # ------ Creating Widgets --------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
+
+        # Capture Interval
+        self.capture_interval_item = SettingItem("Capture Interval")
 
         self.capture_interval_spin = QDoubleSpinBox()
         self.capture_interval_spin.setSuffix("s")
@@ -49,14 +57,11 @@ class ImagePage(QWidget):
 
         ImagePage.settings_widgets["capture_interval"] = self.capture_interval_spin
 
-        self.max_resolution_label = QLabel("Max Resolution")
-        self.max_resolution_label.setStyleSheet(self.label_style)
-
-        self.max_resolution_info = QLabel(
-            "Limit the resolution of the screenshots."
+        # Max Resolution
+        self.max_resolution_item = SettingItem(
+            name="Max Resolution",
+            description="Limit the resolution of the screenshots.",
         )
-        self.max_resolution_info.setWordWrap(True)
-        self.max_resolution_info.setStyleSheet(self.info_style)
 
         self.max_resolution_combo = QComboBox()
         self.max_resolution_combo.addItems(["1080p", "720p", "480p", "360p", "Native"])
@@ -65,15 +70,12 @@ class ImagePage(QWidget):
 
         ImagePage.settings_widgets["max_resolution"] = self.max_resolution_combo
 
-        self.format_label = QLabel("Format")
-        self.format_label.setStyleSheet(self.label_style)
-
-        self.format_info = QLabel(
-            "By default recordings are paused after the specified time of "
-            "voice inactivity. If this is toggled, recordings will not pause."
+        # Format
+        self.format_item = SettingItem(
+            name="Format",
+            description="By default recordings are paused after the specified time of "
+                        "voice inactivity. If this is toggled, recordings will not pause.",
         )
-        self.format_info.setWordWrap(True)
-        self.format_info.setStyleSheet(self.info_style)
 
         self.format_combo = QComboBox()
         self.available_formats = ["JPEG", "PNG"]
@@ -86,50 +88,37 @@ class ImagePage(QWidget):
 
         ImagePage.settings_widgets["format"] = self.format_combo
 
-        """
-        Building Layout
-        """
+        # Screen Region Calibration
+        self.calibration_item = SettingItem(
+            name="Screen Region Calibration",
+            description="Calibrate screen region screenshot by selecting "
+                        "window scaling and (x, y) offsets.",
+        )
 
-        self.capture_interval_layout = QVBoxLayout()
-        self.capture_interval_layout.addWidget(self.capture_interval_label)
+        self.calibration_button = QPushButton("Calibrate")
+        self.calibration_button.clicked.connect(self.open_calibration_window)
 
-        self.max_resolution_layout = QVBoxLayout()
-        self.max_resolution_layout.setSpacing(self.label_info_spacing)
-        self.max_resolution_layout.addWidget(self.max_resolution_label)
-        self.max_resolution_layout.addWidget(self.max_resolution_info)
+        # --------------------------------------------------------------------------------------
+        # ------ Building Layout ---------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
-        self.format_layout = QVBoxLayout()
-        self.format_layout.setSpacing(self.label_info_spacing)
-        self.format_layout.addWidget(self.format_label)
+        self.main_layout.addWidget(self.capture_interval_item, 0, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.capture_interval_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout = QGridLayout()
-        self.main_layout.setVerticalSpacing(30)
-        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.addWidget(self.max_resolution_item, 1, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.max_resolution_combo, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.capture_interval_layout, 0, 0)
-        self.main_layout.addWidget(self.capture_interval_spin, 0, 1, alignment=Qt.AlignRight)
-
-        self.main_layout.addLayout(self.max_resolution_layout, 1, 0)
-        self.main_layout.addWidget(self.max_resolution_combo, 1, 1, alignment=Qt.AlignRight)
-
-        self.main_layout.addLayout(self.format_layout, 2, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.format_item, 2, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.format_combo, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.scroll_content = QWidget()
-        self.scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.scroll_content.setLayout(self.main_layout)
+        self.main_layout.addWidget(self.calibration_item, 3, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.calibration_button, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setAlignment(Qt.AlignTop)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.scroll_content)
+        self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
 
-        self.outside_layout = QVBoxLayout()
-        self.outside_layout.setContentsMargins(0, 0, 0, 0)
-        self.outside_layout.addWidget(self.scroll_area)
-
-        self.setLayout(self.outside_layout)
+    def open_calibration_window(self):
+        self.calibration_window = CalibrationDialog()
+        self.calibration_window.show()
 
     def update_settings(self):
         for option, wdg in ImagePage.settings_widgets.items():

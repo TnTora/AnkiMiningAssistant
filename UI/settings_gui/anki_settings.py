@@ -30,6 +30,7 @@ from util.anki import (
     get_media_dir,
 )
 from util.database import settings
+from .custom_widgets import SettingItem, SettingsPage
 
 
 # https://gist.github.com/JokerMartini/7fe4f204b6a7912be3ac
@@ -43,40 +44,22 @@ def clear_layout(layout):
             clear_layout(layout.takeAt(x).layout())
 
 
-class AnkiPage(QWidget):
-
-    label_style = "font-size:13pt;"
-    info_style = """
-            font-size:9pt;
-            font-weight:bold;
-            color: #b4b4b4;
-        """
-
-    label_info_spacing = 4
+class AnkiPage(SettingsPage):
 
     settings_widgets = {}
 
     def __init__(self):  # noqa: PLR0915
         super().__init__()
 
-        # self.setStyleSheet("""
-        #     QToolButton {
-        #         border: 1px solid #8f8f91;
-        #         border-radius: 6px;
-        #         background-color: gray;
-        #     }
+        # --------------------------------------------------------------------------------------
+        # ------ Creating Widgets --------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
-        #     QToolButton:pressed {
-        #         background-color: #999999;
-        #     }
-        # """)
-
-        self.anki_port_label = QLabel("AnkiConnect PORT")
-        self.anki_port_label.setStyleSheet(self.label_style)
-
-        self.anki_port_info = QLabel("Once connected the following options will become available")
-        self.anki_port_info.setWordWrap(True)
-        self.anki_port_info.setStyleSheet(self.info_style)
+        # Anki Port
+        self.anki_port_item = SettingItem(
+            "AnkiConnect PORT",
+            description="Once connected the following options will become available"
+        )
 
         self.anki_port_spin = QSpinBox()
         self.anki_port_spin.setMaximum(65535)
@@ -84,8 +67,8 @@ class AnkiPage(QWidget):
         self.anki_port_spin.setValue(settings.anki.port)
         AnkiPage.settings_widgets["port"] = self.anki_port_spin
 
-        self.media_label = QLabel("Media Directory")
-        self.media_label.setStyleSheet(self.label_style)
+        # Media Directory
+        self.media_item = SettingItem("Media Directory")
 
         self.media_line_edit = QLineEdit()
         self.media_line_edit.setMinimumWidth(200)
@@ -106,54 +89,44 @@ class AnkiPage(QWidget):
         if settings.anki.media_dir:
             self.media_line_edit.setText(settings.anki.media_dir)
 
-        self.deck_label = QLabel("Deck")
-        self.deck_label.setStyleSheet(self.label_style)
-
-        self.deck_info = QLabel(
-            "Which deck will be automatically be monitored for new cards. "
-            "* will monitor all decks."
+        # Deck
+        self.deck_item = SettingItem(
+            name="Deck",
+            description="Which deck will be automatically monitored for new cards. "
+                        "* will monitor all decks.",
         )
-        self.deck_info.setWordWrap(True)
-        self.deck_info.setStyleSheet(self.info_style)
 
         self.deck_line_edit = QLineEdit()
         self.deck_line_edit.setText(settings.anki.deck)
         AnkiPage.settings_widgets["deck"] = self.deck_line_edit
 
-        self.auto_update_label = QLabel("Auto Update Note")
-        self.auto_update_label.setStyleSheet(self.label_style)
-
-        self.auto_update_info = QLabel(
-            "Update note as soon as it is added to Anki. "
-            "This setting can be overwritten for each session."
+        # Auto Update
+        self.auto_update_item = SettingItem(
+            name="Auto Update Note",
+            description="Update note as soon as it is added to Anki. "
+                        "This setting can be overwritten for each session.",
         )
-        self.auto_update_info.setWordWrap(True)
-        self.auto_update_info.setStyleSheet(self.info_style)
 
         self.auto_update_toggle = QCheckBox(" ")
         self.auto_update_toggle.setChecked(settings.anki.auto_update_last_note)
         AnkiPage.settings_widgets["auto_update_last_note"] = self.auto_update_toggle
 
-        self.open_in_gui_label = QLabel("Open Updated Note in Browser")
-        self.open_in_gui_label.setStyleSheet(self.label_style)
-
-        self.open_in_gui_info = QLabel(
-            "When a note is updated, show it in the anki browser. "
-            "This setting can be overwritten for each session."
+        # Open in GUI
+        self.open_in_gui_item = SettingItem(
+            name="Open Updated Note in Browser",
+            description="When a note is updated, show it in the anki browser. "
+                        "This setting can be overwritten for each session.",
         )
-        self.open_in_gui_info.setWordWrap(True)
-        self.open_in_gui_info.setStyleSheet(self.info_style)
 
         self.open_in_gui_toggle = QCheckBox(" ")
         self.open_in_gui_toggle.setChecked(settings.anki.open_note_in_gui)
         AnkiPage.settings_widgets["open_note_in_gui"] = self.open_in_gui_toggle
 
-        self.note_types_label = QLabel("Note Types")
-        self.note_types_label.setStyleSheet(self.label_style)
-
-        self.note_types_info = QLabel("Which note types can be updated")
-        self.note_types_info.setWordWrap(True)
-        self.note_types_info.setStyleSheet(self.info_style)
+        # Note Types
+        self.note_types_item = SettingItem(
+            name="Note Types",
+            description="Which note types can be updated",
+        )
 
         self.note_types = {}
 
@@ -185,41 +158,13 @@ class AnkiPage(QWidget):
         self.note_types_fields = {}
         self.card_fields = ["Expression", "Sentence", "Sentence Audio", "Picture"]
 
-        """
-        Building Layout
-        """
-
-        self.anki_port_layout = QVBoxLayout()
-        self.anki_port_layout.setSpacing(self.label_info_spacing)
-        self.anki_port_layout.addWidget(self.anki_port_label)
-        self.anki_port_layout.addWidget(self.anki_port_info)
-
-        self.media_layout = QVBoxLayout()
-        self.media_layout.addWidget(self.media_label)
+        # --------------------------------------------------------------------------------------
+        # ------ Building Layout ---------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.media_edit_layout = QHBoxLayout()
         self.media_edit_layout.addWidget(self.media_line_edit)
         self.media_edit_layout.addWidget(self.media_button)
-
-        self.auto_update_layout = QVBoxLayout()
-        self.auto_update_layout.setSpacing(self.label_info_spacing)
-        self.auto_update_layout.addWidget(self.auto_update_label)
-        self.auto_update_layout.addWidget(self.auto_update_info)
-
-        self.open_in_gui_layout = QVBoxLayout()
-        self.open_in_gui_layout.setSpacing(self.label_info_spacing)
-        self.open_in_gui_layout.addWidget(self.open_in_gui_label)
-        self.open_in_gui_layout.addWidget(self.open_in_gui_info)
-
-        self.deck_layout = QVBoxLayout()
-        self.deck_layout.setSpacing(self.label_info_spacing)
-        self.deck_layout.addWidget(self.deck_label)
-        self.deck_layout.addWidget(self.deck_info)
-
-        self.note_types_layout = QVBoxLayout()
-        self.note_types_layout.setSpacing(self.label_info_spacing)
-        self.note_types_layout.addWidget(self.note_types_label, alignment=Qt.AlignTop)
-        self.note_types_layout.addWidget(self.note_types_info, alignment=Qt.AlignTop)
 
         self.notes_form = QFormLayout()
         self.notes_form.setContentsMargins(0, 0, 9, 0)
@@ -233,50 +178,30 @@ class AnkiPage(QWidget):
 
         self.note_field_layouts = {}
 
-        self.main_layout = QGridLayout()
-        self.main_layout.setVerticalSpacing(30)
-        self.main_layout.setContentsMargins(12, 12, 12, 12)
-
-        self.main_layout.addLayout(self.anki_port_layout, 0, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.anki_port_item, 0, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.anki_port_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.media_layout, 1, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.media_item, 1, 0, alignment=Qt.AlignTop)
         self.main_layout.addLayout(self.media_edit_layout, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.deck_layout, 2, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.deck_item, 2, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.deck_line_edit, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.auto_update_layout, 3, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.auto_update_item, 3, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.auto_update_toggle, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.open_in_gui_layout, 4, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.open_in_gui_item, 4, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.open_in_gui_toggle, 4, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addLayout(self.note_types_layout, 5, 0, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.note_types_item, 5, 0, alignment=Qt.AlignTop)
         self.main_layout.addLayout(self.notes_form, 5, 1, alignment=Qt.AlignTop)
 
         for note in self.note_types:
             self.add_note_fields_row(note)
 
-        self.scroll_content = QWidget()
-        self.scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.scroll_content.setLayout(self.main_layout)
-
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setAlignment(Qt.AlignTop)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.scroll_content)
-
-        self.outside_layout = QVBoxLayout()
-        self.outside_layout.setContentsMargins(0, 0, 0, 0)
-        self.outside_layout.addWidget(self.scroll_area)
-
-        self.setLayout(self.outside_layout)
-
-        """
-        Extra
-        """
+        # --------------------------------------------------------------------------------------
+        # ------ Extra -------------------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.anki_thread = Thread(target=self.get_anki_info, daemon=True)
         self.anki_thread.start()
@@ -397,9 +322,9 @@ class AnkiPage(QWidget):
                             tmp_combo.setCurrentText(text)
 
                 break
-            except Exception:
+            except Exception as e:
                 # TODO: Log exception
-                pass
+                ...
             finally:
                 sleep(0.3)
 
