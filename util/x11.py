@@ -15,6 +15,11 @@ class App:
     def __init__(self, name):
         self._name = name
 
+    def __eq__(self, other):
+        if not isinstance(other, App):
+            return False
+        return self._name == other._name
+
     def localizedName(self):
         return self._name
 
@@ -43,8 +48,10 @@ def capture_screenshot(save_path: str | None = None, win: Window | None = None, 
     container = save_path or BytesIO()
     if screen_region:
         img = ImageGrab.grab(bbox=screen_region)
-    else:
+    elif win:
         img = capture_window(win.getHandle())
+    else:
+        img = ImageGrab.grab()
     # resize based on max_resolution
     if max_resolution in resolutions:
         width, height = img.size
