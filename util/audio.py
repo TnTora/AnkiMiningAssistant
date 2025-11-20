@@ -187,10 +187,12 @@ class AudioBuffer:
             cls.inactive_intervals[-1].end_time = datetime.now() - offset
 
     @classmethod
-    def get_timing_adjustment(cls, curr_time, line_time):
+    def get_timing_adjustment(cls, final_time, line_time):
         offset = timedelta(seconds=0)
 
         for interval in reversed(cls.inactive_intervals):
+            if interval.start_time > final_time:
+                continue
 
             if interval.end_time is None:
                 if interval.start_time < line_time:
@@ -228,17 +230,17 @@ class AudioBuffer:
 
         data_copy = self.copy_slice()
 
-        if next_line_time:
-            line_audio_length = next_line_time - line_time
-        else:
-            line_end = len(data_copy)
-
         timing_adjustment = AudioBuffer.get_timing_adjustment(curr_time, line_time)
 
         if timing_adjustment is None:
             # TODO: log
             print("no audio at line timestamp")
             return None, None, None
+
+        if next_line_time:
+            line_audio_length = (next_line_time - line_time) - AudioBuffer.get_timing_adjustment(next_line_time, line_time)
+        else:
+            line_end = len(data_copy)
 
         line_start = len(data_copy) - int(((curr_time - line_time) - timing_adjustment).total_seconds() // AudioSettings.interval_duration)
 
@@ -268,16 +270,9 @@ class AudioBuffer:
 
 def get_audio_inputs():
     audio_inputs = sc.all_microphones(include_loopback=True)
-    loopbacks = []
-    for i in range(len(audio_inputs)):
-        loopback = _isloopback(audio_inputs[i])
-        if loopback:
-            loopbacks.append(i)
-        stored_in_db = audio_inputs[i].name == AudioSettings.audio_input
-        if stored_in_db:
+    for i, a_input in enumerate(audio_inputs):
+        if a_input.name == AudioSettings.audio_input:
             return audio_inputs, i
-    if loopbacks:
-        return audio_inputs, loopbacks[0]
     return audio_inputs, None
 
 
