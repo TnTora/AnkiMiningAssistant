@@ -368,7 +368,7 @@ class NotePreviewDialog(QDialog):
                 self.player_state.setCursor(self.audio_bar.left_handle)
                 self.audio_bar.setPlayerCursor(self.audio_bar.left_handle)
             self.play_button.setText("Pause")
-            self.player = Player_Worker(self.player_state)
+            self.player = Player_Worker(self.player_state, audio_buffer=self.audio_data)
             self.player.start()
 
     def update_cursor(self, cursor: int) -> None:
