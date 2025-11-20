@@ -15,6 +15,14 @@ class App:
         self._name = name
         self._pid = pid
 
+    def __eq__(self, other):
+        if not isinstance(other, App):
+            return False
+        return self._pid == other._pid
+
+    def __hash__(self):
+        return hash(self._pid)
+
     def localizedName(self):
         return self._name
 
@@ -90,8 +98,8 @@ def _getFilteredAppsPid():
     win32gui.EnumWindows(winEnumHandler, None)
     return apps_pid
 
+# https://stackoverflow.com/questions/550653/cross-platform-way-to-get-pids-by-process-name-in-python
 def getAllApps():
-    # https://stackoverflow.com/questions/550653/cross-platform-way-to-get-pids-by-process-name-in-python
     WMI = GetObject("winmgmts:")
     processes = WMI.InstancesOf("Win32_Process")
     filtered_pids = _getFilteredAppsPid()
@@ -117,8 +125,9 @@ def capture_screenshot(save_path: str | None = None, win: Window | None = None, 
     elif win:
         img = ImageGrab.grab(window=win.hwnd)
     else:
-        # TODO: inform user neither win not screen_region are set
-        return None
+        # take screenshot of the full screen
+        img = ImageGrab.grab()
+
     # resize based on max_resolution
     if max_resolution in resolutions:
         width, height = img.size
