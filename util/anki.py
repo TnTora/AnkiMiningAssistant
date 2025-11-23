@@ -132,6 +132,8 @@ def update_note(note_id, fields, tags=""):
 def estimate_last_interval(buffer_copy):
     # Check for the first interval of no voice in the last 20 seconds (or less if not availables) to get interval_end
     # Then find a pause in the voice of at least pause_threshold to find interval_start
+    if len(buffer_copy) == 0:
+        return None
 
     interval_start = max(0, len(buffer_copy)-int(5/settings.audio.interval_duration))
     interval_end = len(buffer_copy)
@@ -140,7 +142,7 @@ def estimate_last_interval(buffer_copy):
 
     end_found = False
     pause = 0
-    for i in range(len(buffer_copy)-1, len(buffer_copy) - int(20/settings.audio.interval_duration), -1):
+    for i in range(len(buffer_copy)-1, max(0, len(buffer_copy) - int(20/settings.audio.interval_duration)), -1):
         if not end_found:
             if buffer_copy[i].vad <= settings.audio.vad_threshold:
                 continue
