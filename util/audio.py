@@ -12,6 +12,7 @@ from collections import deque
 from itertools import islice
 
 from util import screenshot
+from util import sockets
 from util.database import audiodb, AudioSettings, GeneralSettings, sessionsdb
 
 if sys.platform == "darwin":
@@ -28,11 +29,12 @@ buffer = None
 secondary_buffer = None
 record_audio_buffer = None
 
-model = load_silero_vad()
+model = load_silero_vad(onnx=True)
 resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
 
 
 class AudioInterval:
+    __slots__ = ["data", "vad", "timestamp"]
 
     def __init__(self, data, vad=None, timestamp=None) -> None:
         self.data = data
@@ -41,6 +43,7 @@ class AudioInterval:
 
 
 class InactiveInterval:
+    __slots__ = ["start_time", "end_time"]
 
     def __init__(self, start_time, end_time=None):
         self.start_time = start_time
@@ -62,13 +65,15 @@ class AudioBuffer:
         self.is_primary = is_primary
         if self.is_primary:
             self.load_from_db()
+            if self.inactive_intervals:
+                screenshot.ImageTempStorage.last_active_date = self.inactive_intervals[-1].start_time
+                sockets.LinesTempStorage.last_active_date = self.inactive_intervals[-1].start_time
 
     def load_from_db(self):
         for data, vad, timestamp in audiodb.load_buffer_intervals():
             self.update(data, vad, timestamp)
         for start, end in audiodb.load_inactive_intervals():
             start_time = datetime.fromtimestamp(start)
-            # end_time = end if not end else datetime.fromtimestamp(end)
             try:
                 end_time = datetime.fromtimestamp(end)
             except TypeError:
@@ -164,6 +169,9 @@ class AudioBuffer:
         remove_up_to = 0
         curr_time = datetime.now()
 
+        screenshot.ImageTempStorage.last_active_date = curr_time
+        sockets.LinesTempStorage.last_active_date = curr_time
+
         for interval in reversed(cls.inactive_intervals):
 
             if curr_time - interval.end_time - offset > cls.storage_time_limit:
@@ -183,15 +191,21 @@ class AudioBuffer:
         offset = timedelta(seconds=offset)
         cls.inactive = False
         screenshot.ImageTempStorage.inactive = False
+        screenshot.ImageTempStorage.last_active_date = None
+        sockets.LinesTempStorage.last_active_date = None
         if cls.inactive_intervals and cls.inactive_intervals[-1].end_time is None:
             cls.inactive_intervals[-1].end_time = datetime.now() - offset
 
     @classmethod
-    def get_timing_adjustment(cls, final_time, line_time):
+    def get_timing_adjustment(cls, final_time, line_time, *, allow_inactive: bool = False):
         offset = timedelta(seconds=0)
 
         for interval in reversed(cls.inactive_intervals):
+            # print(f"{interval.start_time = }; {interval.end_time = }")
             if interval.start_time > final_time:
+                continue
+            if interval.end_time and final_time < interval.end_time:
+                offset += interval.end_time - final_time
                 continue
 
             if interval.end_time is None:
@@ -200,6 +214,9 @@ class AudioBuffer:
                 continue
 
             if interval.start_time < line_time < interval.end_time:
+                if allow_inactive:
+                    offset += interval.end_time - line_time
+                    break
                 return None
 
             if line_time > interval.end_time:
