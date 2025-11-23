@@ -6,7 +6,6 @@ from PySide6.QtCore import (
     QSize,
     QRect,
     QPoint,
-    # QTimer,
     QThreadPool,
     QRunnable,
 )
@@ -56,7 +55,6 @@ class ManualSelection(RegionSelect):
 
     def save_selection(self):
         coords = self.selection.normalized().getCoords()
-        # img_bytesIO = capture_screenshot(None, None, coords, img_format="PNG", max_resolution=None)
         img_bytesIO = capture_screenshot(img_format="PNG", max_resolution=None)
 
         self.offsets_widget.img = Image.open(img_bytesIO).resize((self.screen_geometry.width(), self.screen_geometry.height()))
@@ -76,27 +74,17 @@ class ScreenshotWorker(QRunnable):
         super().__init__()
         self.widget = widget
         self.signals = PixmapSignals()
-        self.stop_event = False
-
-    def stop(self):
-        self.stop_event = True
 
     @Slot()
     def run(self):
-        try:
-            while not self.stop_event:
-                screen_region = self.widget.get_screen_region()
-                print(f"{screen_region = }")
-                img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG", max_resolution=None)
-                with Image.open(img_bytesIO) as img:
-                    print(f"{img.size = }")
-                    # img.save(f"screenshots/{"_".join([str(a) for a in screen_region])}.png")
-                    qimg = ImageQt(img)
-                    img_pixmap = QPixmap.fromImage(qimg)
-                self.signals.pixmap_update.emit(img_pixmap)
-                sleep(1)
-        except RuntimeError:
-            self.stop()
+        screen_region = self.widget.get_screen_region()
+        # print(f"{screen_region = }")
+        img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG", max_resolution=None)
+        with Image.open(img_bytesIO) as img:
+            # print(f"{img.size = }")
+            qimg = ImageQt(img)
+            img_pixmap = QPixmap.fromImage(qimg)
+        self.signals.pixmap_update.emit(img_pixmap)
 
 
 
@@ -234,6 +222,8 @@ class ScalingCalibration(QWidget):
         self.scaling.setSuffix("x")
         self.scaling.setValue(self.pixel_ratio)
 
+        self.scaling.valueChanged.connect(self.test_screenshot)
+
         self.monitor = QLabel()
         self.monitor.setFixedWidth(400)
         self.monitor.setFixedHeight(400*self.aspect_ratio_inv)
@@ -252,6 +242,17 @@ class ScalingCalibration(QWidget):
 
         self.setLayout(self.main_layout)
 
+        # -------------------------------------------------------------------------------------
+        # -------- Extra ----------------------------------------------------------------------
+        # -------------------------------------------------------------------------------------
+
+        self.threadpool = QThreadPool()
+        self.screenshot_worker = ScreenshotWorker(self)
+        self.screenshot_worker.signals.pixmap_update.connect(
+            self.update_pixmap
+        )
+        self.threadpool.start(self.screenshot_worker)
+
     def get_screen_region(self):
         screen_region = QGuiApplication.primaryScreen().geometry().getCoords()
         screen_region = tuple(int(self.scaling.value()*a) for a in screen_region)
@@ -260,6 +261,13 @@ class ScalingCalibration(QWidget):
     def update_pixmap(self, pixmap):
         pixmap = pixmap.scaledToWidth(self.monitor.size().width(), mode=Qt.TransformationMode.SmoothTransformation)
         self.monitor.setPixmap(pixmap)
+
+    def test_screenshot(self):
+        self.screenshot_worker = ScreenshotWorker(self)
+        self.screenshot_worker.signals.pixmap_update.connect(
+            self.update_pixmap
+        )
+        self.threadpool.start(self.screenshot_worker)
 
 
 class CalibrationDialog(QWidget):
@@ -271,8 +279,6 @@ class CalibrationDialog(QWidget):
 
         self.scaling_widget = ScalingCalibration()
         self.offsets_widget = OffsetCalibration()
-
-        # self.curr_widget = self.offsets_widget
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.close)
@@ -313,25 +319,7 @@ class CalibrationDialog(QWidget):
         # -------- Extra ----------------------------------------------------------------------
         # -------------------------------------------------------------------------------------
 
-        # self.update_timer = QTimer(self)
-        # self.update_timer.setInterval(1000)
-        # self.update_timer.timeout.connect(
-        #     lambda: self.get_screen_region(self.scaling_widget)
-        # )
-        # self.update_timer.start()
-
-        self.threadpool = QThreadPool()
-        self.screenshot_worker = ScreenshotWorker(self.scaling_widget)
-        self.screenshot_worker.signals.pixmap_update.connect(
-            self.scaling_widget.update_pixmap
-        )
-        self.threadpool.start(self.screenshot_worker)
-
         self.manual_selection = None
-
-    def closeEvent(self, event):
-        if not self.screenshot_worker.stop_event:
-            self.screenshot_worker.stop()
 
     def open_manual_selection(self):
         self.manual_selection = ManualSelection(self.offsets_widget)
@@ -344,16 +332,10 @@ class CalibrationDialog(QWidget):
         self.close()
 
     def next(self):
-        self.screenshot_worker.stop()
         self.offsets_widget.pixel_ratio = self.scaling_widget.scaling.value()
         self.stacked_layout.setCurrentWidget(self.offsets_widget)
         self.next_button.hide()
         self.open_manual_selection()
-        # else:
-        #     self.offsets_widget.get_screen_region()
-        #     img_bytesIO = capture_screenshot(img_format="PNG", max_resolution=None)
-        #     self.offsets_widget.img = Image.open(img_bytesIO)
-        #     self.offsets_widget.update_pixmap(crop=True)
 
     def update_pixmap(self, screen_region: tuple, label_widget: QLabel, scale_width: int | None = None):
         img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG")
