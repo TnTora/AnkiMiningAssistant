@@ -2,6 +2,7 @@ import Quartz
 import ApplicationServices
 import ScriptingBridge
 from AppKit import (
+    NSAutoreleasePool,
     NSRunLoop,
     NSDefaultRunLoopMode,
     NSPredicate,
@@ -99,12 +100,10 @@ class Window:
 
     def __repr__(self):
         a_name = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.localizedName()
-        bounds = self.bounds
         precision = 40
         return (
             f"MacOSWindow: {{id={self.CGWindowID}; parent={a_name};"
-            f" title={self.title:.{precision}}{"..." if len(self.title) > precision else ""}; "
-            f"bounds: ({bounds["X"]}, {bounds["Y"]}), w={bounds["Width"]} h={bounds["Height"]}}}"
+            f" title={self.title:.{precision}}{"..." if len(self.title) > precision else ""}}}"
         )
 
     def __eq__(self, other):
@@ -197,16 +196,19 @@ class Window:
 
 
 def getAllApps():
+    pool = NSAutoreleasePool.alloc().init()
     matches = []
     # The list only get updated when the loop runs, so we call it for a single cycle
     runLoop.limitDateForMode_(NSDefaultRunLoopMode)
     for app in NSWorkspace.sharedWorkspace().runningApplications():
         if app.activationPolicy() == Quartz.NSApplicationActivationPolicyRegular:
             matches.append(app)
+    del pool
     return matches
 
 
 def getAppCGWindows(app):
+    pool = NSAutoreleasePool.alloc().init()
     a_pid = app if isinstance(app, int) else app.processIdentifier()
 
     def conditions(x):
@@ -233,6 +235,7 @@ def getAppCGWindows(app):
     for win in windows:
         if conditions(win):
             matches.append(Window(win=win, parent_app=app, title=win["kCGWindowName"]))
+    del pool
     return matches
 
 
@@ -381,6 +384,7 @@ try:
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
+        pool = NSAutoreleasePool.alloc().init()
 
         def shareable_content_completion_handler(shareable_content, error):
 
@@ -483,6 +487,7 @@ try:
         )
 
         finish.wait()
+        del pool
         return container
 
 except ImportError:
