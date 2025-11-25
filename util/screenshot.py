@@ -1,10 +1,11 @@
 import threading
 from time import sleep
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 # from PIL import Image
+from util.audio import AudioBuffer
 from util.platform_util import capture_screenshot
 from util.database import GeneralSettings, ImageSettings, imagedb, sessionsdb
 # import util.util as util
@@ -13,6 +14,7 @@ win = None
 
 
 class ImageStored:
+    __slots__ = ["img_bytesIO", "time"]
 
     def __init__(self, img_bytesIO, time=None):
         self.img_bytesIO = img_bytesIO
@@ -27,6 +29,7 @@ class ImageStored:
 
 class ImageTempStorage:
 
+    # TODO: at startup last_active_date should be equal to start_time of last inactive_interval if present
     last_active_date = None
     storage_time_limit = GeneralSettings.storage_time_limit
     inactive = True
@@ -44,13 +47,11 @@ class ImageTempStorage:
         self.trim_extra()
 
     def trim_extra(self):
-        if ImageTempStorage.last_active_date is None:
-            last_active_date = datetime.now()
-        else:
-            last_active_date = ImageTempStorage.last_active_date
+        last_active_date = ImageTempStorage.last_active_date or datetime.now()
 
         while self.deque:
-            if last_active_date - self.deque[0].time > ImageTempStorage.storage_time_limit:
+            offset = AudioBuffer.get_timing_adjustment(last_active_date, self.deque[0].time) or timedelta(seconds=0)
+            if last_active_date - self.deque[0].time - offset > ImageTempStorage.storage_time_limit:
                 self.deque.popleft()
             else:
                 break
@@ -124,8 +125,3 @@ class ScreenshotManager(threading.Thread):
                 continue
             take_screenshot()
             sleep(self.interval)
-
-        # for img in images_tmp:
-        #     with open(f"screenshots/{img.time.strftime('%Y-%m-%d_%H_%M_%S')}.webp", "wb") as f:
-        #         f.write(img.img_bytesIO.getbuffer())
-

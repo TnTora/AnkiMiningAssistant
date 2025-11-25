@@ -2,7 +2,7 @@ import websockets
 import threading
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import deque
 # import traceback
 
@@ -34,6 +34,7 @@ socket_signals = SocketsSignals()
 
 
 class LineStored:
+    __slots__ = ["text", "time"]
 
     def __init__(self, text, time):
         self.text = text
@@ -62,13 +63,12 @@ class LinesTempStorage:
         socket_signals.line_received.emit(x)
 
     def trim_extra(self):
-        if self.last_active_date is None:
-            last_active_date = datetime.now()
-        else:
-            last_active_date = self.last_active_date
-
-        while True:
-            if last_active_date - self.deque[0].time > self.storage_time_limit:
+        last_active_date = LinesTempStorage.last_active_date or datetime.now()
+        # print(f"{last_active_date = }")
+        while self.deque:
+            offset = audio.AudioBuffer.get_timing_adjustment(last_active_date, self.deque[0].time) or timedelta(seconds=0)
+            # print(f"{self.deque[0].time = }\n{offset = }\n{last_active_date - self.deque[0].time - offset = }")
+            if last_active_date - self.deque[0].time - offset > self.storage_time_limit:
                 self.deque.popleft()
             else:
                 break
@@ -206,8 +206,8 @@ class WebsocketManagerThread(threading.Thread):
                         finally:
                             if isinstance(sentence, str):
                                 text_stored.append(LineStored(text=sentence, time=line_time))
-                                # print(f"audio.AudioBuffer.inactive: {audio.AudioBuffer.inactive}, audio.record_audio_buffer: {audio.record_audio_buffer}")
-                                if audio.AudioBuffer.inactive and audio.record_audio_buffer:
+                                # print(f"{audio.AudioBuffer.inactive = }, {audio.record_audio_buffer = }")
+                                if audio.record_audio_buffer:
                                     audio.record_audio_buffer.resume_recording()
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
