@@ -294,7 +294,7 @@ class NotePreviewDialog(QDialog):
             self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x), 0, xmargin=self.scroll_audio.width()-100)
 
             self.player_state = PlayerState()
-            self.player = Player_Worker(self.player_state, audio_buffer=self.audio_data)
+            self.player = Player_Worker(self.player_state, audio_data=self.audio_data)
 
             self.play_button = QPushButton("Play")
             self.play_button.clicked.connect(self.playAudio)

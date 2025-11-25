@@ -42,10 +42,11 @@ class Player_Worker(Thread):
     # on macOS, blocksize range might be limited
     blocksize = 1 << 14 if platform == "win32" else 1 << 9 # 512
 
-    def __init__(self, player_state: PlayerState, audio_buffer: audio.AudioBuffer | None = None):
+    def __init__(self, player_state: PlayerState, audio_data: audio.AudioBuffer | None = None):
         super().__init__()
         self.player_state = player_state
-        self.buffer = audio_buffer or audio.buffer
+        self.buffer = audio.buffer
+        self.frozen_deque = audio_data
         self.stop_event = Event()
 
     def stop(self):
@@ -60,10 +61,10 @@ class Player_Worker(Thread):
 
         with sc.default_speaker().player(samplerate=settings.audio.samplerate, blocksize=self.blocksize) as sp:
 
-            for block, interval_idx in audio.AudioBuffer.get_data_in_blocks(
-                    self.buffer,
+            for block, interval_idx in self.buffer.get_data_in_blocks(
                     self.blocksize,
-                    starting_idx=self.player_state.cursor
+                    starting_idx=self.player_state.cursor,
+                    frozen_deque=self.frozen_deque,
             ):
 
                 if self.stop_event.is_set() or not self.player_state.playing:

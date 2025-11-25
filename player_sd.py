@@ -38,10 +38,11 @@ class Player_Worker(Thread):
 
     blocksize = 83
 
-    def __init__(self, player_state: PlayerState, audio_buffer: audio.AudioBuffer | None = None):
+    def __init__(self, player_state: PlayerState, audio_data: audio.AudioBuffer | None = None):
         super().__init__()
         self.player_state = player_state
-        self.buffer = audio_buffer or audio.buffer
+        self.buffer = audio.buffer
+        self.frozen_deque = audio_data
         self.stop_event = Event()
         self.block_iter = None
         self.current_block = None
@@ -52,10 +53,10 @@ class Player_Worker(Thread):
     def callback(self, outdata, frames, time, status):
         try:
             if self.block_iter is None:
-                self.block_iter = audio.buffer.get_data_in_blocks(
-                    self.buffer,
+                self.block_iter = self.buffer.get_data_in_blocks(
                     len(outdata),
-                    starting_idx=self.player_state.cursor
+                    starting_idx=self.player_state.cursor,
+                    frozen_deque=self.frozen_deque,
                 )
                 self.current_block, interval_idx = next(self.block_iter)
             else:
