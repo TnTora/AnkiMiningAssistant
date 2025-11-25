@@ -11,9 +11,6 @@ from AppKit import (
     NSBitmapImageRep,
     NSWorkspace,
     NSRunningApplication,
-    NSMutableData,
-    NSData,
-    NSMakeRange,
     CGRect,
     CGPoint,
     CGSize,
@@ -25,56 +22,6 @@ from io import BytesIO
 from PIL import Image
 from math import sqrt
 
-import objc
-
-"""
-Bridging to undocumented private API to get CGWindowID from AXUIElement Window
-
-    AXError _AXUIElementGetWindow(AXUIElementRef, CGWindowID* out);
-
-usage:
-err, winID = _AXUIElementGetWindow(window, None)
-
-Undocumented API to get AXUIElement from a Data object constructed as follows
-
-    - pid (4 bytes)
-    - 0 (4 bytes)
-    - 0x636f636f (4 bytes)
-    - AXUIElementID (8 bytes)
-
-    AXUIElementRef _AXUIElementCreateWithRemoteToken(CFDataRef)
-
-usage:
-AXUIElementRef (from ApplicationServices) must be imported for this to work
-
-axUI_el = _AXUIElementCreateWithRemoteToken(data)
-"""
-
-bundle = objc.loadBundle("ApplicationServices",
-    bundle_path="/System/Library/Frameworks/ApplicationServices.framework",
-    module_globals=globals(),
-    scan_classes=False,
-)
-
-try:
-    functions = [("_AXUIElementGetWindow", objc._C_INT+b"^{__AXUIElement=}"+objc._C_OUT+objc._C_PTR+objc._C_UINT)]  # noqa: SLF001
-
-    objc.loadBundleFunctions(bundle, globals(), functions, skip_undefined=False)
-    useWindowIdPrivateAPI = True
-except objc.error as e:
-    useWindowIdPrivateAPI = False
-    print(f"{useWindowIdPrivateAPI = }")
-    print(e)
-
-try:
-    functions2 = [("_AXUIElementCreateWithRemoteToken", b"^{__AXUIElement=}"+b"^{__CFData=}")]
-
-    objc.loadBundleFunctions(bundle, globals(), functions2, skip_undefined=False)
-    useWindowsSearchPrivateAPI = True
-except objc.error as e:
-    useWindowsSearchPrivateAPI = False
-    print(f"{useWindowsSearchPrivateAPI = }")
-    print(e)
 
 runLoop = NSRunLoop.currentRunLoop()
 
@@ -90,13 +37,11 @@ class MacOSError(Exception):
 class Window:
 
     def __init__(self, win, parent_app, title=None, *, found_public=False, found_private=False):
-        self.ax_win = win if isinstance(win, ApplicationServices.AXUIElementRef) else None
-        self.cg_win = win if isinstance(win, NSDictionary) else None
         self.parent_app = parent_app
         self.title = title or self.get_title()
         self.found_public = found_public
         self.found_private = found_private
-        self.CGWindowID = self.cg_win["kCGWindowNumber"] if self.cg_win else self.get_CGWindowID()
+        self.CGWindowID = win["kCGWindowNumber"]
 
     def __repr__(self):
         a_name = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.localizedName()
@@ -111,8 +56,6 @@ class Window:
             return False
         if self.CGWindowID and other.CGWindowID:
             return self.CGWindowID == other.CGWindowID
-        if self.ax_win and other.ax_win:
-            return self.ax_win == other.ax_win
         return False
 
     def __hash__(self):
@@ -122,13 +65,6 @@ class Window:
         if self.ax_win:
             return self.get_title_AX()
         return self.get_title_CG()
-
-    def get_title_AX(self):
-        err, title = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXTitleAttribute, None)
-        if err:
-            msg = f"Failed to get 'AXTitle' with error code: {err}"
-            raise MacOSError(msg)
-        return title
 
     def get_title_CG(self):
         windows = Quartz.CGWindowListCopyWindowInfo(
@@ -151,48 +87,6 @@ class Window:
         )
         updated_bounds = next((win["kCGWindowBounds"] for win in windows if win["kCGWindowNumber"] == self.CGWindowID), None)
         return updated_bounds
-
-    def get_bounds_AX(self):
-        pos = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXPositionAttribute, None)[1]
-        pos_value = ApplicationServices.AXValueGetValue(pos, ApplicationServices.kAXValueCGPointType, None)[1]
-        size = ApplicationServices.AXUIElementCopyAttributeValue(self.ax_win, ApplicationServices.kAXSizeAttribute, None)[1]
-        size_value = ApplicationServices.AXValueGetValue(size, ApplicationServices.kAXValueCGSizeType, None)[1]
-        bounds = {
-            "Height": size_value.height,
-            "Width": size_value.width,
-            "X": pos_value.x,
-            "Y": pos_value.y,
-        }
-        return bounds
-
-    def get_CGWindowID(self):
-        if useWindowIdPrivateAPI:
-            err, winID = _AXUIElementGetWindow(self.ax_win, None)
-            if err:
-                return None
-            return winID
-
-        windows = Quartz.CGWindowListCopyWindowInfo(
-            Quartz.kCGWindowListExcludeDesktopElements, # | Quartz.kCGWindowListOptionOnScreenOnly,
-            Quartz.kCGNullWindowID,
-        )
-        a_pid = self.parent_app if isinstance(self.parent_app, int) else self.parent_app.processIdentifier()
-        title = self.title
-        bounds = self.bounds
-        title_matches = []
-        for win in windows:
-            if win["kCGWindowOwnerPID"] != a_pid:
-                continue
-            print(f"win: {win}")
-            if win["kCGWindowName"] != title:
-                continue
-            title_matches.append(win["kCGWindowNumber"])
-            if win["kCGWindowBounds"] != bounds:
-                continue
-            return win["kCGWindowNumber"]
-        if len(title_matches) == 1:
-            return title_matches[0]
-
 
 
 def getAllApps():
@@ -239,129 +133,7 @@ def getAppCGWindows(app):
     return matches
 
 
-def _has_win_subrole(axUiElement):
-    """Check if axUiElement is a window by verifying its Subrole."""
-    err, res = ApplicationServices.AXUIElementCopyAttributeValue(axUiElement, ApplicationServices.kAXSubroleAttribute, None)
-    if err:
-        return False
-    return res in [ApplicationServices.kAXStandardWindowSubrole, ApplicationServices.kAXDialogSubrole]
-
-
-def getAppAXWindows(app):
-    a_pid = app if isinstance(app, int) else app.processIdentifier()
-    ax_app = ApplicationServices.AXUIElementCreateApplication(a_pid)
-    err, ax_wins = ApplicationServices.AXUIElementCopyAttributeValues(ax_app, ApplicationServices.kAXWindowsAttribute, 0, 99999, None)
-
-    if err:
-        msg = f"Failed to get 'AXWindows' for pid: {a_pid} with error code: {err}"
-        # TODO: Log
-        return []
-
-    windows = []
-
-    for ax_win in ax_wins:
-        if not _has_win_subrole(ax_win):
-            continue
-        windows.append(Window(ax_win, app, found_public=True))
-
-    return windows
-
-
-# Based on implementation in alt-tab-macos https://github.com/lwouis/alt-tab-macos/commit/2cd8b96d389004b41ce2aad5667d0a11be36dabf
-def _brute_force_window_search(a_pid: int):
-    remoteToken = NSMutableData(length=20)
-    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(0, 4), a_pid.to_bytes(4, byteorder="little"))
-    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(4, 4), bytes(4))
-    remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(8, 4), (0x636f636f).to_bytes(4, byteorder="little"))
-    windows = []
-    for i in range(1000):
-        remoteToken.replaceBytesInRange_withBytes_(NSMakeRange(12, 8), i.to_bytes(8, byteorder="little"))
-        axUiElement = _AXUIElementCreateWithRemoteToken(remoteToken)
-        if not _has_win_subrole(axUiElement):
-            continue
-        windows.append(axUiElement)
-    return windows
-
-
-def getAllAppWindows(app, *, brute_force=True):
-    a_pid = app if isinstance(app, int) else app.processIdentifier()
-    windows = getAppAXWindows(a_pid)
-    if useWindowsSearchPrivateAPI and brute_force:
-        b_wins = [Window(w, a_pid, found_private=True) for w in _brute_force_window_search(a_pid)]
-        for win in b_wins:
-            try:
-                win_idx = windows.index(win)
-                windows[win_idx].found_private = True
-            except ValueError:  # noqa: PERF203
-                windows.append(win)
-    return windows
-
-
 getAppWindows = getAppCGWindows
-
-
-def getAXWindowBounds(ax_win):
-    pos = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXPositionAttribute, None)[1]
-    if pos is None:
-        return None
-    pos_value = ApplicationServices.AXValueGetValue(pos, ApplicationServices.kAXValueCGPointType, None)[1]
-    size = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXSizeAttribute, None)[1]
-    if size is None:
-        return None
-    size_value = ApplicationServices.AXValueGetValue(size, ApplicationServices.kAXValueCGSizeType, None)[1]
-    bounds = {
-        "Height": int(size_value.height),
-        "Width": int(size_value.width),
-        "X": int(pos_value.x),
-        "Y": int(pos_value.y),
-    }
-    return bounds
-
-
-def getAXWindowFromWindowInfo(AXWindowsList, win):
-    for ax_win in AXWindowsList:
-        if useWindowIdPrivateAPI:
-            err, winID = _AXUIElementGetWindow(ax_win, None)
-
-            if not err and win["kCGWindowNumber"] == winID:
-                print("AXWindow found by private API")
-                return ax_win
-
-        title = ApplicationServices.AXUIElementCopyAttributeValue(ax_win, ApplicationServices.kAXTitleAttribute, None)[1]
-        if title is None:
-            continue
-
-        bounds = getAXWindowBounds(ax_win)
-
-        if win["kCGWindowName"] != title:
-            continue
-        if win["kCGWindowBounds"] != bounds:
-            continue
-
-        return ax_win
-
-
-def activateWindow(app, proc, win_ax):
-    app.activateWithOptions_(Quartz.NSApplicationActivateIgnoringOtherApps)
-    ApplicationServices.AXUIElementPerformAction(win_ax, ApplicationServices.kAXRaiseAction)
-    sleep(0.1)
-    if not isCurrentlyActive(app):
-        proc.setFrontmost_(True)
-
-
-def isCurrentlyActive(app):
-    activeAppName = NSWorkspace.sharedWorkspace().activeApplication()["NSWorkspaceApplicationKey"]
-    return app == activeAppName
-
-
-def getAS_SystemEvents():
-    return ScriptingBridge.SBApplication.applicationWithBundleIdentifier_("com.apple.systemevents")
-
-
-def getAS_Process(se, app):
-    processes = se.processes()
-    pred = NSPredicate.predicateWithFormat_(f"unixId == {app.processIdentifier()}")
-    return processes.filteredArrayUsingPredicate_(pred)[0]
 
 
 resolutions = {
@@ -387,43 +159,28 @@ try:
         pool = NSAutoreleasePool.alloc().init()
 
         def shareable_content_completion_handler(shareable_content, error):
+            nonlocal container
 
             if error is not None:
                 finish.set()
                 return
 
             if win:
-
-                if win.CGWindowID:
-                    pred_format = f"windowID == {win.CGWindowID}"
-                else:
-                    pred_format =f"(title == '{win.title}') AND (owningApplication.processID == {win.parent_app.processIdentifier()})"
-
-
+                pred_format = f"windowID == {win.CGWindowID}"
                 pred = NSPredicate.predicateWithFormat_(pred_format)
                 capture_target_matches = shareable_content.windows().filteredArrayUsingPredicate_(pred)
                 if not capture_target_matches:
                     # TODO: log and inform the user
+                    container = None
                     finish.set()
                     return
 
                 capture_target = None
-                if len(capture_target_matches) == 1:
+                if len(capture_target_matches) > 0:
                     capture_target = capture_target_matches[0]
-                elif len(capture_target_matches) > 1:
-                    bounds = win.bounds
-                    for window_capture in capture_target_matches:
-                        curr_bounds = {
-                            "Height": window_capture.frame().size.height,
-                            "Width": window_capture.frame().size.width,
-                            "X": window_capture.frame().origin.x,
-                            "Y": window_capture.frame().origin.y,
-                        }
-                        if curr_bounds == bounds:
-                            capture_target = window_capture
-                            break
 
                 if capture_target is None:
+                    container = None
                     finish.set()
                     return
 
@@ -468,7 +225,12 @@ try:
             )
 
         def capture_image_completion_handler(image, error):
-            nonlocal file_data
+            nonlocal file_data, container
+
+            if image is None:
+                container = None
+                finish.set()
+                return
 
             bitmap_rep = NSBitmapImageRep(CGImage=image)
             data = bitmap_rep.representationUsingType_properties_(
