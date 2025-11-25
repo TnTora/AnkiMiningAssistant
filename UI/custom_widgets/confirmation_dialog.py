@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from PySide6.QtCore import (
     Qt,
     Signal,
+    Slot,
 )
 from PySide6.QtGui import (
     QBrush,
@@ -108,9 +109,9 @@ class SelectLineDialog(QDialog):
 
 class Thumbnail(QLabel):
 
-    clicked = Signal()
+    clicked = Signal(int)
 
-    def __init__(self, img_src, w, *, selectable=False):
+    def __init__(self, img_src, w, index=None, *, selectable=False):
         super().__init__()
         # self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.img_pixmap = None
@@ -118,10 +119,10 @@ class Thumbnail(QLabel):
         self.selected = False
         self.hover = False
         self.width = w
+        self.index = index
         self.setImage(img_src, w)
-        if selectable:
-            self.enterEvent = self.enterEvent_override
-            self.leaveEvent = self.leaveEvent_override
+        if selectable and self.index is None:
+            raise ValueError("missing or invalid index")
 
     def setImage(self, img_src, w=None):
         if w is not None:
@@ -140,17 +141,20 @@ class Thumbnail(QLabel):
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        self.clicked.emit()
+        if self.selectable:
+            self.clicked.emit(self.index)
 
-    def enterEvent_override(self, event):
+    def enterEvent(self, event):
         # self.setCursor(Qt.PointingHandCursor)
-        self.hover = True
-        self.update()
+        if self.selectable:
+            self.hover = True
+            self.update()
 
-    def leaveEvent_override(self, event):
+    def leaveEvent(self, event):
         # self.setCursor(Qt.ArrowCursor)
-        self.hover = False
-        self.update()
+        if self.selectable:
+            self.hover = False
+            self.update()
 
     def paintEvent(self, arg__1):
         super().paintEvent(arg__1)
@@ -202,9 +206,10 @@ class NotePreviewDialog(QDialog):
         self.header_font = QFont()
         self.header_font.setPointSize(18)
 
-        """
-        Image Preview
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Image Preview ----------------------------------------------------------
+        # --------------------------------------------------------------------------------------
+
         if self.imgs:
             self.img_top_label = QLabel("Image Preview")
             self.img_top_label.setFont(self.header_font)
@@ -214,10 +219,8 @@ class NotePreviewDialog(QDialog):
             self.thumbnails = []
 
             for i in range(len(self.imgs)):
-                tmp_thumb = Thumbnail(self.imgs[i].img_bytesIO, 100, selectable=True)
-                tmp_thumb.clicked.connect(
-                    lambda i=i: self.select_img(i)
-                )
+                tmp_thumb = Thumbnail(self.imgs[i].img_bytesIO, w=100, index=i, selectable=True)
+                tmp_thumb.clicked.connect(self.select_img)
                 self.thumbnails.append(tmp_thumb)
 
             self.thumbnails[0].setSelected(True)
@@ -246,9 +249,9 @@ class NotePreviewDialog(QDialog):
             self.thumbs_layout.addWidget(self.curr_img)
             self.thumbs_layout.addWidget(self.scroll_thumbs)
 
-        """
-        Audio Preview
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Audio Preview ----------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         if self.audio_data:
             self.audio_top_label = QLabel("Audio Preview")
@@ -258,10 +261,10 @@ class NotePreviewDialog(QDialog):
             self.audio_bar.setPlayable(True)
             self.audio_bar.setPlayerCursor(40)
             self.audio_bar.player_cursor_updated.connect(
-                lambda cursor: self.player_state.setCursor(cursor)
+                self.update_bar_cursor
             )
             self.audio_bar.zoom_changed.connect(
-                lambda zoom: self.zoom_slider.setValue(zoom)
+                self.update_bar_zoom
             )
 
             self.zoom_slider = QSlider()
@@ -317,9 +320,9 @@ class NotePreviewDialog(QDialog):
             self.bottom_audio_layout.addWidget(self.zoom_slider, alignment=Qt.AlignRight)
             self.bottom_audio_layout.setStretch(1, 1)
 
-        """
-        Sentence Preview
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Sentence Preview -------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         if self.sentence:
             self.sentence_top_label = QLabel("Sentence Preview")
@@ -333,9 +336,9 @@ class NotePreviewDialog(QDialog):
             self.sentence_text_edit.setFixedHeight(100)
             self.sentence_text_edit.setFont(self.sentence_font)
 
-        """
-        Build Layout
-        """
+        # --------------------------------------------------------------------------------------
+        # ------------- Build Layout ------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
 
         self.main_layout = QVBoxLayout()
         if self.imgs:
@@ -353,6 +356,11 @@ class NotePreviewDialog(QDialog):
         self.main_layout.addWidget(self.buttonBox)
         self.setLayout(self.main_layout)
 
+    def closeEvent(self, event):
+        if self.audio:
+            self.player.stop()
+
+    @Slot(int)
     def select_img(self, i: int) -> None:
         self.thumbnails[self.selected_img_idx].setSelected(False)
         self.selected_img_idx = i
@@ -368,9 +376,18 @@ class NotePreviewDialog(QDialog):
                 self.player_state.setCursor(self.audio_bar.left_handle)
                 self.audio_bar.setPlayerCursor(self.audio_bar.left_handle)
             self.play_button.setText("Pause")
-            self.player = Player_Worker(self.player_state, audio_buffer=self.audio_data)
+            self.player = Player_Worker(self.player_state, audio_data=self.audio_data)
             self.player.start()
 
+    @Slot(int)
+    def update_bar_cursor(self, cursor):
+        self.player_state.setCursor(cursor)
+
+    @Slot(int)
+    def update_bar_zoom(self, zoom):
+        self.zoom_slider.setValue(zoom)
+
+    @Slot(int)
     def update_cursor(self, cursor: int) -> None:
         if cursor < self.audio_bar.left_handle:
             cursor = self.audio_bar.left_handle
@@ -387,10 +404,12 @@ class NotePreviewDialog(QDialog):
         if self.player_state.playing:
             self.scroll_audio.ensureVisible(cursor_x, 0)
 
+    @Slot(int)
     def update_zoom(self, value) -> None:
         self.audio_bar.setZoom(value)
         self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x), 0, xmargin=self.scroll_audio.width()-100)
 
+    @Slot()
     def reset_selection(self) -> None:
         self.audio_bar.setRange(*self.audio_range)
         self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x)+200, 0)
