@@ -4,7 +4,6 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 from collections import deque
-# import traceback
 
 from PySide6.QtCore import Signal, QObject
 
@@ -80,7 +79,6 @@ class LinesTempStorage:
         return self.deque.__repr__()
 
 
-text_received = None
 text_stored = LinesTempStorage()
 
 
@@ -108,6 +106,7 @@ class WebsocketManagerThread(threading.Thread):
         self.ws_port = ws_port
         self.unsent_text = []
         self.listen_urls = listen_urls
+        self.text_received = None
 
     @property
     def loop(self):
@@ -117,18 +116,21 @@ class WebsocketManagerThread(threading.Thread):
     def stop_server(self):
         for task in self.tasks:
             task.cancel()
+        self.main_task.cancel()
         socket_signals.ws_state.emit(0)
         socket_signals.listener_state.emit("all", 0)
 
     async def send_to_texthooker(self):
         while True:
             try:
-                msg = await text_received.get()
+                msg = await self.text_received.get()
                 if not self.clients:
                     self.unsent_text.append(msg)
                     return
                 for client in self.clients:
                     await client.send(msg)
+            except asyncio.CancelledError:
+                break
             except Exception:
                 pass
 
@@ -158,18 +160,21 @@ class WebsocketManagerThread(threading.Thread):
                         socket_signals.ws_state.emit(1)
                         self.main_task = asyncio.create_task(self.send_to_texthooker())
                         await self.main_task
-                except asyncio.CancelledError:
-                    pass
+                except asyncio.CancelledError:  # noqa: PERF203
+                    break
                 except Exception as e:
                     socket_signals.ws_state.emit(0)
                     print(e)
                     await asyncio.sleep(1)
+                else:
+                    socket_signals.ws_state.emit(0)
+                    break
+
 
         async def main():
-            global text_received
             self._loop = asyncio.get_running_loop()
             # self._loop.set_debug(True)
-            text_received = asyncio.Queue()
+            self.text_received = asyncio.Queue()
             self._event.set()
             self.tasks = [asyncio.create_task(self.new_listener(url)) for url in self.listen_urls]
             self.tasks.append(asyncio.create_task(start_server()))
@@ -196,7 +201,7 @@ class WebsocketManagerThread(threading.Thread):
                         if not msg:
                             continue
                         line_time = datetime.now()
-                        text_received.put_nowait(msg)
+                        self.text_received.put_nowait(msg)
                         try:
                             data = json.loads(msg)
                             if "sentence" in data:
@@ -212,10 +217,13 @@ class WebsocketManagerThread(threading.Thread):
                                 ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                                 self.tasks.append(ss_task)
             except asyncio.CancelledError:
-                pass
+                break
             except Exception:
                 # print(e)
                 socket_signals.listener_state.emit(url, 1)
                 is_Luna = not is_Luna
                 # traceback.print_exc()
                 await asyncio.sleep(1)
+            else:
+                socket_signals.listener_state.emit(url, 0)
+                break
