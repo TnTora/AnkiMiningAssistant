@@ -38,6 +38,8 @@ class RegionSelect(QWidget):
         w = w or self.available_geometry.width()/2
         h = h or self.available_geometry.height()/2
 
+        self.starting_rect = (x, y, w, h)
+
         self.selection  = QRect(x, y, w, h)
         self.selection_color = QColor(0, 0, 0, 100)
 
@@ -46,7 +48,7 @@ class RegionSelect(QWidget):
 
         self.reset_button = QPushButton("Reset")
         self.reset_button.clicked.connect(
-            lambda: self.reset_selection(x, y, w, h)
+            self.reset_selection
         )
 
         self.cancel_button = QPushButton("Cancel")
@@ -69,9 +71,9 @@ class RegionSelect(QWidget):
         self.cancelled.emit()
         self.close()
 
-    def reset_selection(self, x, y, w, h):
+    def reset_selection(self):
         """Return selection to its initial position."""
-        self.selection.setRect(x, y, w, h)
+        self.selection.setRect(*self.starting_rect)
         self.buttons.setGeometry(
             self.selection.right()-self.buttons_layout.sizeHint().width(),
             self.selection.bottom(),

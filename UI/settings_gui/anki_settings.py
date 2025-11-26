@@ -1,6 +1,8 @@
 from PySide6.QtCore import (
     QSize,
     Qt,
+    Signal,
+    Slot,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -33,15 +35,131 @@ from util.database import settings
 from .custom_widgets import SettingItem, SettingsPage
 
 
-# https://gist.github.com/JokerMartini/7fe4f204b6a7912be3ac
-def clear_layout(layout):
-    """Remove all widgets and layouts contained in the input of the function."""
-    for x in reversed(range(layout.count())):
-        widget = layout.takeAt(x).widget()
-        if widget is not None:
-            widget.deleteLater()
-        else:
-            clear_layout(layout.takeAt(x).layout())
+class NoteTypesForm(QWidget):
+
+    note_removed = Signal(str)
+    note_added = Signal(str)
+
+    def __init__(self, note_types: dict) -> None:
+        super().__init__()
+
+        self.note_types_dict = note_types
+
+        self.notes_form = QFormLayout()
+        self.notes_form.setContentsMargins(0, 0, 9, 0)
+        self.notes_form.setVerticalSpacing(10)
+        self.notes_form.setHorizontalSpacing(5)
+        self.notes_form.setLabelAlignment(Qt.AlignRight)
+        self.notes_form.setFormAlignment(Qt.AlignRight)
+
+        for note in settings.anki.note_types:
+            tmp_label = QLabel(f"{note} ")
+            tmp_tool_button = QToolButton()
+
+            tmp_tool_button.setText("-")
+            tmp_tool_button.setMinimumSize(QSize(23, 22))
+            tmp_tool_button.clicked.connect(self.remove_note_slot_gen(note))
+
+            self.note_types_dict[note] = [tmp_label, tmp_tool_button]
+
+            self.notes_form.addRow(tmp_label, tmp_tool_button)
+
+        self.new_note_combo = QComboBox()
+        self.new_note_combo.setMaximumWidth(200)
+
+        if settings.anki.note_types_fields:
+            note_types_db = list(settings.anki.note_types_fields.keys())
+            self.new_note_combo.addItems(note_types_db)
+
+        self.new_note_combo.setCurrentIndex(-1)
+
+        self.add_note_button = QToolButton()
+        self.add_note_button.setText("+")
+        self.add_note_button.setMinimumSize(QSize(23, 22))
+        self.add_note_button.clicked.connect(self.add_note_type)
+
+        self.notes_form.addRow(self.new_note_combo, self.add_note_button)
+
+        self.setLayout(self.notes_form)
+
+    def remove_note_slot_gen(self, note):
+        @Slot()
+        def remove_note():
+            row = self.note_types_dict.pop(note)
+            self.notes_form.removeRow(row[1])
+            # self.remove_note_field_row(note)
+            self.note_removed.emit(note)
+        return remove_note
+
+    def add_note_type(self):
+        new_note = self.new_note_combo.currentText()
+        if not new_note:
+            return
+        new_label = QLabel(f"{new_note} ")
+        new_button = QToolButton()
+        new_button.setText("-")
+        new_button.setMinimumSize(QSize(23, 22))
+        new_button.clicked.connect(self.remove_note_slot_gen(new_note))
+        self.notes_form.takeRow(self.add_note_button)
+        self.note_types_dict[new_note] = [new_label, new_button]
+        self.notes_form.addRow(new_label, new_button)
+        self.new_note_combo.setCurrentIndex(-1)
+        self.notes_form.addRow(self.new_note_combo, self.add_note_button)
+        # self.add_note_fields_row(new_note)
+        self.note_added.emit(new_note)
+
+
+class NoteTypeFields(QWidget):
+
+    def __init__(self, note_type: str, card_fields: list, note_types_fields: dict) -> None:
+        super().__init__()
+        self.note_type = note_type
+        self.card_fields = card_fields
+        self.note_types_fields = note_types_fields
+
+        self.form_widget = QWidget()
+
+        self.form_layout = QFormLayout()
+        self.form_layout.setLabelAlignment(Qt.AlignLeft)
+        self.form_layout.setFormAlignment(Qt.AlignRight)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.form_layout.setContentsMargins(10, 0, 0, 0)
+        self.form_layout.setHorizontalSpacing(70)
+        self.form_widget.setLayout(self.form_layout)
+        self.form_widget.setStyleSheet("""
+            border-left:1px solid gray;
+        """)
+        self.form_widget.setMinimumHeight(110)
+
+        for field in self.card_fields:
+            tmp_combo = QComboBox()
+
+            # if AnkiPage.found_note_types_fields is not None and AnkiPage.found_note_types_fields[note]:
+            #     tmp_combo.addItems(AnkiPage.found_note_types_fields[note])
+            if settings.anki.note_types_fields and settings.anki.note_types_fields[note_type]:
+                tmp_combo.addItems(settings.anki.note_types_fields[note_type])
+
+            tmp_combo.setCurrentIndex(-1)
+            if note_type in settings.anki.note_types:
+                text = getattr(settings.anki, field.lower().replace(" ", "_"))[note_type]
+                tmp_combo.setCurrentText(text)
+
+            self.form_layout.addRow(field, tmp_combo)
+            self.note_types_fields[note_type][field] = tmp_combo
+
+        # self.note_types_fields[note_type]["widget"] = self.form_widget
+
+        self.h_box = QHBoxLayout()
+        self.h_box.setContentsMargins(13, 0, 0, 0)
+        self.note_label = QLabel(note_type)
+        self.note_label.setMinimumWidth(80)
+        self.note_label.setWordWrap(True)
+        self.note_label.setAlignment(Qt.AlignCenter)
+        self.h_box.addWidget(self.note_label)
+        self.h_box.addWidget(self.form_widget)
+        self.h_box.setStretch(1, 1)
+
+        self.setLayout(self.h_box)
 
 
 class AnkiPage(SettingsPage):
@@ -130,30 +248,8 @@ class AnkiPage(SettingsPage):
 
         self.note_types = {}
 
-        for note in settings.anki.note_types:
-            tmp_line_edit = QLabel(f"{note} ")
-            tmp_tool_button = QToolButton()
-
-            tmp_tool_button.setText("-")
-            tmp_tool_button.setMinimumSize(QSize(23, 22))
-            tmp_tool_button.clicked.connect(lambda e, note=note: self.remove_note(note))
-
-            self.note_types[note] = [tmp_line_edit, tmp_tool_button]
-
-        self.new_note_combo = QComboBox()
-        self.new_note_combo.setMaximumWidth(200)
-        AnkiPage.settings_widgets["note_types"] = self.new_note_combo
-
-        if settings.anki.note_types_fields:
-            note_types_db = list(settings.anki.note_types_fields.keys())
-            self.new_note_combo.addItems(note_types_db)
-
-        self.new_note_combo.setCurrentIndex(-1)
-
-        self.add_note_button = QToolButton()
-        self.add_note_button.setText("+")
-        self.add_note_button.setMinimumSize(QSize(23, 22))
-        self.add_note_button.clicked.connect(self.add_note_type)
+        self.note_types_form = NoteTypesForm(self.note_types)
+        AnkiPage.settings_widgets["note_types"] =  self.note_types_form.new_note_combo # self.new_note_combo
 
         self.note_types_fields = {}
         self.card_fields = ["Expression", "Sentence", "Sentence Audio", "Picture"]
@@ -165,18 +261,6 @@ class AnkiPage(SettingsPage):
         self.media_edit_layout = QHBoxLayout()
         self.media_edit_layout.addWidget(self.media_line_edit)
         self.media_edit_layout.addWidget(self.media_button)
-
-        self.notes_form = QFormLayout()
-        self.notes_form.setContentsMargins(0, 0, 9, 0)
-        self.notes_form.setVerticalSpacing(10)
-        self.notes_form.setHorizontalSpacing(5)
-        self.notes_form.setLabelAlignment(Qt.AlignRight)
-        self.notes_form.setFormAlignment(Qt.AlignRight)
-        for note in self.note_types:
-            self.notes_form.addRow(self.note_types[note][0], self.note_types[note][1])
-        self.notes_form.addRow(self.new_note_combo, self.add_note_button)
-
-        self.note_field_layouts = {}
 
         self.main_layout.addWidget(self.anki_port_item, 0, 0, alignment=Qt.AlignTop)
         self.main_layout.addWidget(self.anki_port_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
@@ -194,7 +278,7 @@ class AnkiPage(SettingsPage):
         self.main_layout.addWidget(self.open_in_gui_toggle, 4, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
         self.main_layout.addWidget(self.note_types_item, 5, 0, alignment=Qt.AlignTop)
-        self.main_layout.addLayout(self.notes_form, 5, 1, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(self.note_types_form, 5, 1, alignment=Qt.AlignTop)
 
         for note in self.note_types:
             self.add_note_fields_row(note)
@@ -203,87 +287,27 @@ class AnkiPage(SettingsPage):
         # ------ Extra -------------------------------------------------------------------------
         # --------------------------------------------------------------------------------------
 
+        self.note_types_form.note_added.connect(self.add_note_fields_row)
+        self.note_types_form.note_removed.connect(self.remove_note_field_row)
+
         self.anki_thread = Thread(target=self.get_anki_info, daemon=True)
         self.anki_thread.start()
 
-    def add_note_type(self):
-        new_note = self.new_note_combo.currentText()
-        if not new_note:
-            return
-        new_line_edit = QLabel(f"{new_note} ")
-        new_button = QToolButton()
-        new_button.setText("-")
-        new_button.setMinimumSize(QSize(23, 22))
-        new_button.clicked.connect(lambda: self.remove_note(new_note))
-        self.notes_form.takeRow(self.add_note_button)
-        self.note_types[new_note] = [new_line_edit, new_button]
-        self.notes_form.addRow(new_line_edit, new_button)
-        self.new_note_combo.setCurrentIndex(-1)
-        self.notes_form.addRow(self.new_note_combo, self.add_note_button)
-        self.add_note_fields_row(new_note)
-
-    def remove_note(self, note):
-        row = self.note_types.pop(note)
-        self.notes_form.removeRow(row[1])
-        self.remove_note_field_row(note)
-
     def add_note_fields_row(self, note):
         self.note_types_fields[note] = {}
-        tmp_widget = QWidget()
-        tmp_layout = QFormLayout()
-        tmp_layout.setLabelAlignment(Qt.AlignLeft)
-        tmp_layout.setFormAlignment(Qt.AlignRight)
-        tmp_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        tmp_layout.setContentsMargins(10, 0, 0, 0)
-        tmp_layout.setHorizontalSpacing(70)
-        tmp_widget.setLayout(tmp_layout)
-        tmp_widget.setStyleSheet("""
-            border-left:1px solid gray;
-        """)
-        tmp_widget.setMinimumHeight(110)
-
-        for field in self.card_fields:
-            tmp_combo = QComboBox()
-
-            # if AnkiPage.found_note_types_fields is not None and AnkiPage.found_note_types_fields[note]:
-            #     tmp_combo.addItems(AnkiPage.found_note_types_fields[note])
-            if settings.anki.note_types_fields and settings.anki.note_types_fields[note]:
-                tmp_combo.addItems(settings.anki.note_types_fields[note])
-
-            tmp_combo.setCurrentIndex(-1)
-            if note in settings.anki.note_types:
-                text = getattr(settings.anki, field.lower().replace(" ", "_"))[note]
-                tmp_combo.setCurrentText(text)
-
-            tmp_layout.addRow(field, tmp_combo)
-            self.note_types_fields[note][field] = tmp_combo
-
-        self.note_types_fields[note]["widget"] = tmp_widget
-
-        tmp_h_box = QHBoxLayout()
-        tmp_h_box.setContentsMargins(13, 0, 0, 0)
-        tmp_label = QLabel(note)
-        tmp_label.setMinimumWidth(80)
-        tmp_label.setWordWrap(True)
-        tmp_label.setAlignment(Qt.AlignCenter)
-        tmp_h_box.addWidget(tmp_label)
-        tmp_h_box.addWidget(tmp_widget)
-        tmp_h_box.setStretch(1, 1)
+        tmp_fields_widget = NoteTypeFields(note, self.card_fields, self.note_types_fields)
+        self.note_types_fields[note]["widget"] = tmp_fields_widget
         new_row = self.main_layout.rowCount()
-        self.main_layout.addLayout(tmp_h_box, new_row, 0, 1, 2, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(tmp_fields_widget, new_row, 0, 1, 2, alignment=Qt.AlignTop)
 
         # Add stretch to just the last row to keep everything top aligned
         self.main_layout.setRowStretch(new_row - 1, 0)
         self.main_layout.setRowStretch(new_row, 1)
 
-        self.note_field_layouts[note] = self.main_layout.itemAtPosition(new_row, 0)
-
     def remove_note_field_row(self, note):
-        if self.note_field_layouts[note] is not None:
-            clear_layout(self.note_field_layouts[note].layout())
-            self.main_layout.removeItem(self.note_field_layouts[note])
-            self.note_field_layouts[note] = None
-            self.note_types_fields.pop(note)
+        self.main_layout.removeWidget(self.note_types_fields[note]["widget"])
+        self.note_types_fields[note]["widget"].deleteLater()
+        self.note_types_fields.pop(note)
 
     def get_anki_info(self):
         while True:

@@ -1,6 +1,8 @@
 from PySide6.QtCore import (
     QSize,
     Qt,
+    Slot,
+    Signal,
 )
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -24,6 +26,7 @@ from .custom_widgets import SettingItem, SettingsPage
 class GeneralPage(SettingsPage):
 
     settings_widgets = {}
+    listeners_updated = Signal()
 
     def __init__(self):
         super().__init__()
@@ -78,7 +81,7 @@ class GeneralPage(SettingsPage):
             tmp_tool_button.setText("-")
             tmp_tool_button.setMinimumSize(QSize(23, 22))
 
-            tmp_tool_button.clicked.connect(lambda a, url=url: self.remove_listen_url(url))
+            tmp_tool_button.clicked.connect(self.remove_listen_url_slot_gen(url))
 
             self.listen_urls[url] = [tmp_line_edit, tmp_tool_button]
 
@@ -122,16 +125,28 @@ class GeneralPage(SettingsPage):
         new_button = QToolButton()
         new_button.setText("-")
         new_button.setMinimumSize(QSize(23, 22))
-        new_button.clicked.connect(lambda: self.remove_listen_url(new_url))
+        new_button.clicked.connect(self.remove_listen_url_slot_gen(new_url))
         self.urls_form.takeRow(self.add_url_button)
         self.listen_urls[new_url] = [new_line_edit, new_button]
         self.urls_form.addRow(new_line_edit, new_button)
         self.new_url_edit.setText("")
         self.urls_form.addRow(self.new_url_edit, self.add_url_button)
 
-    def remove_listen_url(self, url):
-        row = self.listen_urls.pop(url)
-        self.urls_form.removeRow(row[1])
+    def remove_listen_url_slot_gen(self, url):
+        @Slot()
+        def remove_listen_url():
+            row = self.listen_urls.pop(url)
+            self.urls_form.removeRow(row[1])
+        return remove_listen_url
+
+    def update_listen_url(self):
+        tmp_listen_urls = list(self.listen_urls.keys())
+
+        if tmp_listen_urls == settings.general.listen_urls:
+            return
+
+        settings.update_option("general", "listen_urls", tmp_listen_urls)
+        self.listeners_updated.emit()
 
     def update_settings(self):
         for option, wdg in GeneralPage.settings_widgets.items():
@@ -149,6 +164,4 @@ class GeneralPage(SettingsPage):
                     continue
             settings.update_option("general", option, value)
 
-        tmp_listen_urls = list(self.listen_urls.keys())
-        if tmp_listen_urls:
-            settings.update_option("general", "listen_urls", tmp_listen_urls)
+        self.update_listen_url()

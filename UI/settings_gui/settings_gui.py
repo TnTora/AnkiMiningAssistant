@@ -1,6 +1,7 @@
 # from datetime import timedelta
 from PySide6.QtCore import (
     Qt,
+    Slot,
 )
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
@@ -81,25 +82,25 @@ class SettingsWindow(QWidget):
         self.general_button.setCheckable(True)
         self.general_button.setChecked(True)
         self.general_button.toggled.connect(
-            lambda checked: self.stacked_widget.setCurrentWidget(self.general_page) if checked else None
+            self.page_update_slot(self.general_page)
         )
 
         self.anki_button = QPushButton("Anki")
         self.anki_button.setCheckable(True)
         self.anki_button.toggled.connect(
-            lambda checked: self.stacked_widget.setCurrentWidget(self.anki_page) if checked else None
+            self.page_update_slot(self.anki_page)
         )
 
         self.audio_button = QPushButton("Audio")
         self.audio_button.setCheckable(True)
         self.audio_button.toggled.connect(
-            lambda checked: self.stacked_widget.setCurrentWidget(self.audio_page) if checked else None
+            self.page_update_slot(self.audio_page)
         )
 
         self.image_button = QPushButton("Image")
         self.image_button.setCheckable(True)
         self.image_button.toggled.connect(
-            lambda checked: self.stacked_widget.setCurrentWidget(self.image_page) if checked else None
+            self.page_update_slot(self.image_page)
         )
 
         self.sidebar_buttons = QButtonGroup()
@@ -158,6 +159,13 @@ class SettingsWindow(QWidget):
         self.window_layout.addLayout(self.settings_layout)
 
         self.setLayout(self.window_layout)
+
+    def page_update_slot(self, widget):
+        @Slot(bool)
+        def update_page(checked):
+            if checked:
+                self.stacked_widget.setCurrentWidget(widget)
+        return update_page
 
     def update_settings(self):
         self.anki_page.update_settings()

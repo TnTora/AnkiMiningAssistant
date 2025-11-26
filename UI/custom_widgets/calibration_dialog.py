@@ -111,7 +111,7 @@ class OffsetCalibration(QWidget):
         self.x_offset.setSuffix("px")
         self.x_offset.setValue(settings.image.offsets["x"])
         self.x_offset.valueChanged.connect(
-            lambda: self.update_pixmap(crop=True)
+            self.update_pixmap_slot
         )
 
         self.y_offset = QSpinBox()
@@ -121,7 +121,7 @@ class OffsetCalibration(QWidget):
         self.y_offset.setSuffix("px")
         self.y_offset.setValue(settings.image.offsets["y"])
         self.y_offset.valueChanged.connect(
-            lambda: self.update_pixmap(crop=True)
+            self.update_pixmap_slot
         )
 
         self.target = QLabel("Example")
@@ -169,7 +169,7 @@ class OffsetCalibration(QWidget):
         print(f"{self.target.geometry().topLeft() = }\n{self.target.geometry().bottomRight() = }\n{screen_region = }")
         return screen_region
 
-    def update_pixmap(self, pixmap=None, *, crop: bool = False):
+    def update_pixmap(self, pixmap=None, *, crop: bool = True):
         if pixmap:
             self.monitor.setPixmap(pixmap)
             return
@@ -193,6 +193,10 @@ class OffsetCalibration(QWidget):
         img_pixmap = QPixmap.fromImage(qimg)
         img_pixmap = img_pixmap.scaledToWidth(self.monitor.size().width(), mode=Qt.TransformationMode.SmoothTransformation)
         self.monitor.setPixmap(img_pixmap)
+
+    @Slot(int)
+    def update_pixmap_slot(self, value):
+        self.update_pixmap(crop=True)
 
 
 class ScalingCalibration(QWidget):
