@@ -3,7 +3,6 @@ from datetime import timedelta
 from contextlib import closing
 from io import BytesIO
 import soundfile as sf
-# import numpy as np
 import inspect
 import json
 
@@ -41,6 +40,7 @@ class AudioSettings:
     continuous_recording = False
     vad_threshold = 0.5
     pause_threshold = 10
+    padding = 10
 
 
 class ImageSettings:
@@ -167,6 +167,12 @@ class ImageDB:
                 );""")
 
     def store_imgs(self, img_buffer):
+        def insert_img_gen(img_buffer):
+            for img in img_buffer:
+                if img.time.timestamp() <= self.last_loaded_timestamp:
+                    continue
+                yield (img.time.timestamp(), img.img_bytesIO.getbuffer())
+
         with closing(sqlite3.connect(self.path)) as conn:
             if len(img_buffer) == 0:
                 return
@@ -175,13 +181,11 @@ class ImageDB:
                     DELETE FROM images
                     WHERE time < ?;
                 """, (img_buffer[0].time.timestamp(),))
-                for img in img_buffer:
-                    if img.time.timestamp() <= self.last_loaded_timestamp:
-                        continue
-                    conn.execute("""
-                        INSERT INTO images (time, data)
-                        VALUES (?, ?);
-                    """, (img.time.timestamp(), img.img_bytesIO.getbuffer()))
+
+                conn.executemany("""
+                    INSERT INTO images (time, data)
+                    VALUES (?, ?);
+                """, insert_img_gen(img_buffer))
 
     def load_imgs(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -214,7 +218,33 @@ class AudioDB:
                             end
                 );""")
 
+    def clear(self):
+        with closing(sqlite3.connect(self.path)) as conn:
+            with conn:
+                conn.execute("""
+                    DELETE FROM audio
+                    WHERE type = 'interval'
+                """)
+                conn.execute("DELETE FROM inactive_intervals;")
+
     def store_buffer_intervals(self, buffer):
+        def insert_audio_gen(audio_buffer):
+            for interval in buffer:
+                if interval.timestamp <= self.last_loaded_timestamp:
+                    continue
+                # print(f"self.last_loaded_timestamp: {self.last_loaded_timestamp}; interval.timestamp: {interval.timestamp}")
+
+                temp_audio = BytesIO()
+
+                audio_format = "WAV"
+                if "MP3" in sf.available_formats():
+                    audio_format = "MP3"
+
+                with sf.SoundFile(temp_audio, mode="w", format=audio_format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
+                    f.write(interval.data)
+
+                yield ("interval", temp_audio.getbuffer(), interval.vad, interval.timestamp)
+
         if buffer is None or len(buffer) == 0:
             return
         with closing(sqlite3.connect(self.path)) as conn:
@@ -226,45 +256,33 @@ class AudioDB:
                     AND timestamp < ?
                 """, (buffer[0].timestamp, ))
 
-                for interval in buffer:
-                    if interval.timestamp <= self.last_loaded_timestamp:
-                        continue
-                    # print(f"self.last_loaded_timestamp: {self.last_loaded_timestamp}; interval.timestamp: {interval.timestamp}")
-
-                    temp_audio = BytesIO()
-
-                    audio_format = "WAV"
-                    if "MP3" in sf.available_formats():
-                        audio_format = "MP3"
-
-                    with sf.SoundFile(temp_audio, mode="w", format=audio_format, channels=buffer.channels, samplerate=AudioSettings.samplerate) as f:
-                        f.write(interval.data)
-
-                    conn.execute("""
-                        INSERT INTO audio (type, data, vad, timestamp)
-                        VALUES (?, ?, ?, ?);
-                    """, ("interval", temp_audio.getbuffer(), interval.vad, interval.timestamp))
+                conn.executemany("""
+                    INSERT INTO audio (type, data, vad, timestamp)
+                    VALUES (?, ?, ?, ?);
+                """, insert_audio_gen(buffer))
 
     def store_inactive_intervals(self, buffer):
+        def insert_inactive_gen(intervals):
+            for interval in buffer.inactive_intervals:
+                start = interval.start_time.timestamp()
+
+                try:
+                    end = interval.end_time.timestamp()
+                except AttributeError:
+                    end = None
+
+                yield (start, end)
+
         if buffer is None or len(buffer) == 0:
             return
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 conn.execute("DELETE FROM inactive_intervals;")
 
-                for interval in buffer.inactive_intervals:
-                    start = interval.start_time.timestamp()
-                    # end = interval.end_time if not interval.end_time else interval.end_time.timestamp()
-
-                    try:
-                        end = interval.end_time.timestamp()
-                    except AttributeError:
-                        end = None
-
-                    conn.execute("""
-                        INSERT INTO inactive_intervals (start, end)
-                        VALUES (?, ?);
-                    """, (start, end))
+                conn.executemany("""
+                    INSERT INTO inactive_intervals (start, end)
+                    VALUES (?, ?);
+                """, insert_inactive_gen(buffer.inactive_intervals))
 
     def load_buffer_intervals(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -305,11 +323,12 @@ class LineDB:
         with closing(sqlite3.connect(self.path)) as conn:
             with conn:
                 conn.execute("DELETE FROM lines;")
-                for line in line_storage:
-                    conn.execute("""
-                        INSERT INTO lines (time, text)
-                        VALUES (?, ?);
-                    """, (line.time.timestamp(), line.text))
+
+                line_storage.trim_extra()
+                conn.executemany("""
+                    INSERT INTO lines (time, text)
+                    VALUES (?, ?);
+                """, ((line.time.timestamp(), line.text) for line in line_storage))
 
     def load_lines(self):
         with closing(sqlite3.connect(self.path)) as conn:
