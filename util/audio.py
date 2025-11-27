@@ -97,6 +97,18 @@ class AudioBuffer:
     def __len__(self):
         return self.deque.__len__()
 
+    @staticmethod
+    def get_db_channels():
+        """Returns channels number for audio in db."""
+        first_interval = next(audiodb.load_buffer_intervals(), None)
+        if first_interval is None:
+            return None
+        try:
+            prev_channels = first_interval[0].shape[1]
+        except IndexError:
+            prev_channels = 1
+        return prev_channels
+
     def data(self, start_idx=0, end_idx=None):
         end_idx = end_idx or len(self.deque)
 
@@ -278,9 +290,9 @@ class AudioBuffer:
             if i.vad > AudioSettings.vad_threshold:
                 last_active_interval = j
 
-        padding = 10
-        line_start = max(line_start - padding, 0)
-        line_end = min(last_active_interval + padding, line_end)
+        # padding = 10
+        line_start = max(line_start - AudioSettings.padding, 0)
+        line_end = min(last_active_interval + AudioSettings.padding, line_end)
 
         if save_path:
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
@@ -338,7 +350,7 @@ class recordAudioBuffer(threading.Thread):
 
                 _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
 
-                data_tensor = torch.from_numpy(_data).reshape((2, -1))
+                data_tensor = torch.from_numpy(_data).reshape((audio_input.channels, -1))
 
                 if data_tensor.size(0) > 1:
                     data_tensor = data_tensor.mean(dim=0, keepdim=True)
