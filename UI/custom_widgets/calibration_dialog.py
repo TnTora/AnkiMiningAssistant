@@ -60,6 +60,12 @@ class ManualSelection(RegionSelect):
         self.offsets_widget.img = Image.open(img_bytesIO).resize((self.screen_geometry.width(), self.screen_geometry.height()))
         self.offsets_widget.coords = coords
         self.offsets_widget.update_pixmap(crop=True)
+
+        self.offsets_widget.instruction_label.setText(
+            "Adjust x and y offsets until the image on the rigth "
+            "matches the one on the left."
+        )
+
         self.close()
 
 
@@ -95,14 +101,19 @@ class OffsetCalibration(QWidget):
         self.img = None
         self.coords = None
         self.pixel_ratio = None
+        self.manual_selection = None
+
         self.instruction_label = QLabel(
-            "Adjust x and y offsets until the image on the rigth "
-            "matches the one on the left."
+            "Click the Screenshot button and align the selection with "
+            "the square on the left."
         )
         self.instruction_label.setWordWrap(True)
         self.instruction_label.setSizePolicy(
             QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Fixed)
+
+        self.screenshot_button = QPushButton("Take Screenshot")
+        self.screenshot_button.clicked.connect(self.open_manual_selection)
 
         self.x_offset = QSpinBox()
         self.x_offset.setMinimum(-500)
@@ -150,11 +161,16 @@ class OffsetCalibration(QWidget):
 
         self.main_layout = QVBoxLayout()
         self.main_layout.addWidget(self.instruction_label)
+        self.main_layout.addWidget(self.screenshot_button)
         self.main_layout.addLayout(self.inputs_layout)
         self.main_layout.addLayout(self.matching_layout)
         self.main_layout.setStretch(2, 1)
 
         self.setLayout(self.main_layout)
+
+    def open_manual_selection(self):
+        self.manual_selection = ManualSelection(self)
+        self.manual_selection.show()
 
     def get_screen_region(self):
         top_left = self.target.mapToGlobal(QPoint(0, 0))
@@ -319,16 +335,6 @@ class CalibrationDialog(QWidget):
 
         self.setLayout(self.main_layout)
 
-        # -------------------------------------------------------------------------------------
-        # -------- Extra ----------------------------------------------------------------------
-        # -------------------------------------------------------------------------------------
-
-        self.manual_selection = None
-
-    def open_manual_selection(self):
-        self.manual_selection = ManualSelection(self.offsets_widget)
-        self.manual_selection.show()
-
     def save_options(self):
         settings.image.pixel_ratio = self.scaling_widget.scaling.value()
         settings.image.offsets["x"] = self.offsets_widget.x_offset.value()
@@ -339,7 +345,6 @@ class CalibrationDialog(QWidget):
         self.offsets_widget.pixel_ratio = self.scaling_widget.scaling.value()
         self.stacked_layout.setCurrentWidget(self.offsets_widget)
         self.next_button.hide()
-        self.open_manual_selection()
 
     def update_pixmap(self, screen_region: tuple, label_widget: QLabel, scale_width: int | None = None):
         img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG")
