@@ -46,17 +46,25 @@ else:
 
 class AlertDialog(QDialog):
 
-    def __init__(self, alert_txt, *args, **kwargs):
+    def __init__(self, alert_txt, *args, cancel=False, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle("Alert")
 
+        buttons = QDialogButtonBox.Ok
+
+        if cancel:
+            buttons = buttons | QDialogButtonBox.Cancel
+
         QBtn = (
-            QDialogButtonBox.Ok
+            buttons
         )
 
         self.buttonBox = QDialogButtonBox(QBtn)
         self.buttonBox.accepted.connect(self.accept)
+
+        if cancel:
+            self.buttonBox.rejected.connect(self.reject)
 
         self.alert_label = QLabel(alert_txt)
         self.alert_label.setWordWrap(True)
