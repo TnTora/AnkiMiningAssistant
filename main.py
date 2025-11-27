@@ -853,10 +853,31 @@ class MainWindow(QMainWindow):
             # audio.audio_input = None
             return
 
-        old_audio_input = audio.audio_input
+        prev_channels = audio.buffer.channels if audio.buffer else audio.AudioBuffer.get_db_channels()
+
+        # print(f"{prev_channels = }")
+
+        if prev_channels and self.audio_inputs[index].channels != prev_channels:
+            alert = AlertDialog(
+                f"Current AudioBuffer using {prev_channels} channels while "
+                f"selected input uses {self.audio_inputs[index].channels}.\n\n"
+                "If you procede, the current buffer will be emptied.\n",
+                cancel=True,
+            )
+            if not alert.exec():
+                try:
+                    old_idx = self.audio_inputs.index(audio.audio_input)
+                    self.audio_input_select.setCurrentIndex(old_idx)
+                except ValueError:
+                    self.audio_input_select.setCurrentText("**No Input Selected**")
+                return
+            audiodb.clear()
+            if audio.buffer:
+                audio.buffer.deque.clear()
+
         audio.audio_input = self.audio_inputs[index]
         settings.update_option("audio", "audio_input", self.audio_inputs[index].name)
-        if audio.buffer is None or old_audio_input != audio.audio_input:
+        if audio.buffer is None:
             audio.buffer = audio.AudioBuffer(channels=audio.audio_input.channels, is_primary=True)
             audio.secondary_buffer = audio.AudioBuffer(channels=audio.audio_input.channels, max_time=0.5)
             self.player_state.total_intervals = len(audio.buffer)
