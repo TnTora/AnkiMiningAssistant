@@ -276,6 +276,8 @@ class AudioDB:
                 """):
                     self.last_loaded_timestamp = timestamp
                     interval_data, _ = sf.read(BytesIO(data))
+                    if len(interval_data.shape) == 1:
+                        interval_data = interval_data.reshape((-1, 1))
                     yield interval_data, vad, timestamp
 
     def load_inactive_intervals(self):
