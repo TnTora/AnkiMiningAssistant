@@ -25,20 +25,12 @@ from .custom_widgets import SettingItem, SettingsPage
 
 class ImagePage(SettingsPage):
 
-    label_style = "font-size:13pt;"
-    info_style = """
-            font-size:9pt;
-            font-weight:bold;
-            color: #b4b4b4;
-        """
-
-    label_info_spacing = 4
-
     settings_widgets = {}
 
     def __init__(self):
         super().__init__()
         self.calibration_window = None
+        self.layout_rows = []
 
         # --------------------------------------------------------------------------------------
         # ------ Creating Widgets --------------------------------------------------------------
@@ -56,6 +48,7 @@ class ImagePage(SettingsPage):
         self.capture_interval_spin.setValue(settings.image.capture_interval)
 
         ImagePage.settings_widgets["capture_interval"] = self.capture_interval_spin
+        self.layout_rows.append((self.capture_interval_item, self.capture_interval_spin))
 
         # Max Resolution
         self.max_resolution_item = SettingItem(
@@ -66,9 +59,9 @@ class ImagePage(SettingsPage):
         self.max_resolution_combo = QComboBox()
         self.max_resolution_combo.addItems(["1080p", "720p", "480p", "360p", "Native"])
         self.max_resolution_combo.setCurrentText(settings.image.max_resolution)
-        # self.inactivity_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         ImagePage.settings_widgets["max_resolution"] = self.max_resolution_combo
+        self.layout_rows.append((self.max_resolution_item, self.max_resolution_combo))
 
         # Format
         self.format_item = SettingItem(
@@ -87,6 +80,7 @@ class ImagePage(SettingsPage):
             self.format_combo.setCurrentText(settings.image.format)
 
         ImagePage.settings_widgets["format"] = self.format_combo
+        self.layout_rows.append((self.format_item, self.format_combo))
 
         # Screen Region Calibration
         self.calibration_item = SettingItem(
@@ -98,21 +92,15 @@ class ImagePage(SettingsPage):
         self.calibration_button = QPushButton("Calibrate")
         self.calibration_button.clicked.connect(self.open_calibration_window)
 
+        self.layout_rows.append((self.calibration_item, self.calibration_button))
+
         # --------------------------------------------------------------------------------------
         # ------ Building Layout ---------------------------------------------------------------
         # --------------------------------------------------------------------------------------
 
-        self.main_layout.addWidget(self.capture_interval_item, 0, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.capture_interval_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.addWidget(self.max_resolution_item, 1, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.max_resolution_combo, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.addWidget(self.format_item, 2, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.format_combo, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.addWidget(self.calibration_item, 3, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.calibration_button, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        for row, widgets in enumerate(self.layout_rows):
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
         self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
 

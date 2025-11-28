@@ -168,6 +168,7 @@ class AnkiPage(SettingsPage):
 
     def __init__(self):  # noqa: PLR0915
         super().__init__()
+        self.layout_rows = []
 
         # --------------------------------------------------------------------------------------
         # ------ Creating Widgets --------------------------------------------------------------
@@ -183,7 +184,9 @@ class AnkiPage(SettingsPage):
         self.anki_port_spin.setMaximum(65535)
         self.anki_port_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.anki_port_spin.setValue(settings.anki.port)
+
         AnkiPage.settings_widgets["port"] = self.anki_port_spin
+        self.layout_rows.append((self.anki_port_item, self.anki_port_spin))
 
         # Media Directory
         self.media_item = SettingItem("Media Directory")
@@ -202,10 +205,19 @@ class AnkiPage(SettingsPage):
         self.media_button.setMinimumSize(QSize(23, 22))
         self.media_button.setText("...")
         self.media_button.clicked.connect(self.media_select.open)
-        AnkiPage.settings_widgets["media_dir"] = self.media_line_edit
 
         if settings.anki.media_dir:
             self.media_line_edit.setText(settings.anki.media_dir)
+
+        self.media_edit_layout = QHBoxLayout()
+        self.media_edit_layout.addWidget(self.media_line_edit)
+        self.media_edit_layout.addWidget(self.media_button)
+
+        self.media_widget = QWidget()
+        self.media_widget.setLayout(self.media_edit_layout)
+
+        AnkiPage.settings_widgets["media_dir"] = self.media_line_edit
+        self.layout_rows.append((self.media_item, self.media_widget))
 
         # Deck
         self.deck_item = SettingItem(
@@ -216,7 +228,9 @@ class AnkiPage(SettingsPage):
 
         self.deck_line_edit = QLineEdit()
         self.deck_line_edit.setText(settings.anki.deck)
+
         AnkiPage.settings_widgets["deck"] = self.deck_line_edit
+        self.layout_rows.append((self.deck_item, self.deck_line_edit))
 
         # Auto Update
         self.auto_update_item = SettingItem(
@@ -227,7 +241,9 @@ class AnkiPage(SettingsPage):
 
         self.auto_update_toggle = QCheckBox(" ")
         self.auto_update_toggle.setChecked(settings.anki.auto_update_last_note)
+
         AnkiPage.settings_widgets["auto_update_last_note"] = self.auto_update_toggle
+        self.layout_rows.append((self.auto_update_item, self.auto_update_toggle))
 
         # Open in GUI
         self.open_in_gui_item = SettingItem(
@@ -238,7 +254,9 @@ class AnkiPage(SettingsPage):
 
         self.open_in_gui_toggle = QCheckBox(" ")
         self.open_in_gui_toggle.setChecked(settings.anki.open_note_in_gui)
+
         AnkiPage.settings_widgets["open_note_in_gui"] = self.open_in_gui_toggle
+        self.layout_rows.append((self.open_in_gui_item, self.open_in_gui_toggle))
 
         # Note Types
         self.note_types_item = SettingItem(
@@ -249,7 +267,9 @@ class AnkiPage(SettingsPage):
         self.note_types = {}
 
         self.note_types_form = NoteTypesForm(self.note_types)
-        AnkiPage.settings_widgets["note_types"] =  self.note_types_form.new_note_combo # self.new_note_combo
+
+        AnkiPage.settings_widgets["note_types"] =  self.note_types_form.new_note_combo
+        self.layout_rows.append((self.note_types_item, self.note_types_form))
 
         self.note_types_fields = {}
         self.card_fields = ["Expression", "Sentence", "Sentence Audio", "Picture"]
@@ -258,27 +278,27 @@ class AnkiPage(SettingsPage):
         # ------ Building Layout ---------------------------------------------------------------
         # --------------------------------------------------------------------------------------
 
-        self.media_edit_layout = QHBoxLayout()
-        self.media_edit_layout.addWidget(self.media_line_edit)
-        self.media_edit_layout.addWidget(self.media_button)
+        # self.main_layout.addWidget(self.anki_port_item, 0, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addWidget(self.anki_port_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addWidget(self.anki_port_item, 0, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.anki_port_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        # self.main_layout.addWidget(self.media_item, 1, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addLayout(self.media_edit_layout, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addWidget(self.media_item, 1, 0, alignment=Qt.AlignTop)
-        self.main_layout.addLayout(self.media_edit_layout, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        # self.main_layout.addWidget(self.deck_item, 2, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addWidget(self.deck_line_edit, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addWidget(self.deck_item, 2, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.deck_line_edit, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        # self.main_layout.addWidget(self.auto_update_item, 3, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addWidget(self.auto_update_toggle, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addWidget(self.auto_update_item, 3, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.auto_update_toggle, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        # self.main_layout.addWidget(self.open_in_gui_item, 4, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addWidget(self.open_in_gui_toggle, 4, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        self.main_layout.addWidget(self.open_in_gui_item, 4, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.open_in_gui_toggle, 4, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+        # self.main_layout.addWidget(self.note_types_item, 5, 0, alignment=Qt.AlignTop)
+        # self.main_layout.addWidget(self.note_types_form, 5, 1, alignment=Qt.AlignTop)
 
-        self.main_layout.addWidget(self.note_types_item, 5, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.note_types_form, 5, 1, alignment=Qt.AlignTop)
+        for row, widgets in enumerate(self.layout_rows):
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
 
         for note in self.note_types:
             self.add_note_fields_row(note)

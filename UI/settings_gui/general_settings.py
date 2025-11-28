@@ -23,55 +23,10 @@ from util.database import settings
 from .custom_widgets import SettingItem, SettingsPage
 
 
-class GeneralPage(SettingsPage):
-
-    settings_widgets = {}
-    listeners_updated = Signal()
+class WebsocketListenersForm(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setFocus()
-
-        # --------------------------------------------------------------------------------------
-        # ------ Creating Widgets --------------------------------------------------------------
-        # --------------------------------------------------------------------------------------
-
-        # Buffer Length
-        self.buffer_item = SettingItem(
-            name="Buffer Length",
-            description="Amount of time to store audio, images and lines",
-        )
-
-
-        self.buffer_spin = QSpinBox()
-        self.buffer_spin.setMaximum(1800)
-        self.buffer_spin.setSuffix("s")
-        self.buffer_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.buffer_spin.setValue(settings.general.storage_time_limit.total_seconds())
-
-        GeneralPage.settings_widgets["storage_time_limit"] = self.buffer_spin
-
-        # WebSocket Port
-        self.ws_port_item = SettingItem(
-            name="WebSocket Port",
-            description="PORT used to communicate with texthooker",
-        )
-
-        self.ws_port_spin = QSpinBox()
-        self.ws_port_spin.setMaximum(65535)
-        self.ws_port_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.ws_port_spin.setValue(settings.general.ws_port)
-
-        GeneralPage.settings_widgets["ws_port"] = self.ws_port_spin
-
-        # WebSockets Listeners
-        self.listen_urls_item = SettingItem(
-            name="Listen To WebSockets",
-            description="URLs to listen to in order to receive text",
-        )
-
-
         self.listen_urls = {}
 
         for url in settings.general.listen_urls:
@@ -83,7 +38,7 @@ class GeneralPage(SettingsPage):
 
             tmp_tool_button.clicked.connect(self.remove_listen_url_slot_gen(url))
 
-            self.listen_urls[url] = [tmp_line_edit, tmp_tool_button]
+            self.listen_urls[url] = (tmp_line_edit, tmp_tool_button)
 
         self.new_url_edit = QLineEdit()
         self.add_url_button = QToolButton()
@@ -105,16 +60,7 @@ class GeneralPage(SettingsPage):
             self.urls_form.addRow(self.listen_urls[url][0], self.listen_urls[url][1])
         self.urls_form.addRow(self.new_url_edit, self.add_url_button)
 
-        self.main_layout.addWidget(self.buffer_item, 0, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.buffer_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.addWidget(self.ws_port_item, 1, 0, alignment=Qt.AlignTop)
-        self.main_layout.addWidget(self.ws_port_spin, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.addWidget(self.listen_urls_item, 2, 0, alignment=Qt.AlignTop)
-        self.main_layout.addLayout(self.urls_form, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
+        self.setLayout(self.urls_form)
 
     def add_listen_url(self):
         # TODO: Validate input
@@ -139,8 +85,74 @@ class GeneralPage(SettingsPage):
             self.urls_form.removeRow(row[1])
         return remove_listen_url
 
+
+class GeneralPage(SettingsPage):
+
+    settings_widgets = {}
+    listeners_updated = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()
+
+        self.layout_rows = []
+        # --------------------------------------------------------------------------------------
+        # ------ Creating Widgets --------------------------------------------------------------
+        # --------------------------------------------------------------------------------------
+
+        # Buffer Length
+        self.buffer_item = SettingItem(
+            name="Buffer Length",
+            description="Amount of time to store audio, images and lines",
+        )
+
+
+        self.buffer_spin = QSpinBox()
+        self.buffer_spin.setMaximum(1800)
+        self.buffer_spin.setSuffix("s")
+        self.buffer_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.buffer_spin.setValue(settings.general.storage_time_limit.total_seconds())
+
+        GeneralPage.settings_widgets["storage_time_limit"] = self.buffer_spin
+        self.layout_rows.append((self.buffer_item, self.buffer_spin))
+
+        # WebSocket Port
+        self.ws_port_item = SettingItem(
+            name="WebSocket Port",
+            description="PORT used to communicate with texthooker",
+        )
+
+        self.ws_port_spin = QSpinBox()
+        self.ws_port_spin.setMaximum(65535)
+        self.ws_port_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.ws_port_spin.setValue(settings.general.ws_port)
+
+        GeneralPage.settings_widgets["ws_port"] = self.ws_port_spin
+        self.layout_rows.append((self.ws_port_item, self.ws_port_spin))
+
+        # WebSockets Listeners
+        self.listen_urls_item = SettingItem(
+            name="Listen To WebSockets",
+            description="URLs to listen to in order to receive text",
+        )
+
+        self.listen_urls_form = WebsocketListenersForm()
+        self.layout_rows.append((self.listen_urls_item, self.listen_urls_form))
+
+        # # --------------------------------------------------------------------------------------
+        # # ------ Building Layout ---------------------------------------------------------------
+        # # --------------------------------------------------------------------------------------
+
+        for row, widgets in enumerate(self.layout_rows):
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+
+        self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
+
+
     def update_listen_url(self):
-        tmp_listen_urls = list(self.listen_urls.keys())
+        tmp_listen_urls = list(self.listen_urls_form.listen_urls.keys())
 
         if tmp_listen_urls == settings.general.listen_urls:
             return
