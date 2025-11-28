@@ -40,7 +40,7 @@ class AudioSettings:
     continuous_recording = False
     vad_threshold = 0.5
     pause_threshold = 10
-    padding = 10
+    padding = 320
 
 
 class ImageSettings:

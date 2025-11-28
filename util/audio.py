@@ -290,9 +290,9 @@ class AudioBuffer:
             if i.vad > AudioSettings.vad_threshold:
                 last_active_interval = j
 
-        # padding = 10
-        line_start = max(line_start - AudioSettings.padding, 0)
-        line_end = min(last_active_interval + AudioSettings.padding, line_end)
+        padding = int((AudioSettings.padding / 1000) / AudioSettings.interval_duration)
+        line_start = max(line_start - padding, 0)
+        line_end = min(last_active_interval + padding, line_end)
 
         if save_path:
             with sf.SoundFile(file=save_path, mode="w", channels=self.channels, samplerate=AudioSettings.samplerate) as f:
