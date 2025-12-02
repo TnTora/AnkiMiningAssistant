@@ -11,6 +11,10 @@ from util.screenshot import _take_screenshot
 from util.database import GeneralSettings, linedb
 from util import audio
 
+import logging
+
+logger = logging.getLogger("app_logger")
+
 ws_server = None
 selected_idxs = ()
 
@@ -129,10 +133,11 @@ class WebsocketManagerThread(threading.Thread):
                     return
                 for client in self.clients:
                     await client.send(msg)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # noqa: PERF203
                 break
-            except Exception:
-                pass
+            except Exception as e:
+                # TODO: Specificy exceptions
+                logger.warning(e)
 
     async def msg_handler(self, websocket):
         self.clients.add(websocket)
@@ -163,12 +168,12 @@ class WebsocketManagerThread(threading.Thread):
                 except asyncio.CancelledError:  # noqa: PERF203
                     break
                 except Exception as e:
-                    socket_signals.ws_state.emit(0)
-                    print(e)
+                    socket_signals.ws_state.emit(1)
+                    logger.exception("Failed to start websocket server")
                     await asyncio.sleep(1)
                 else:
                     socket_signals.ws_state.emit(0)
-                    break
+                    # break
 
 
         async def main():
@@ -186,6 +191,27 @@ class WebsocketManagerThread(threading.Thread):
         task = asyncio.create_task(self.new_listener(url))
         self.tasks.append(task)
 
+    async def listener_loop(self, websocket):
+        while True:
+            msg = await websocket.recv()
+            if not msg:
+                continue
+            line_time = datetime.now()
+            self.text_received.put_nowait(msg)
+            try:
+                data = json.loads(msg)
+                if "sentence" in data:
+                    sentence = data["sentence"]
+            except json.JSONDecodeError:
+                sentence = msg
+            finally:
+                if isinstance(sentence, str):
+                    text_stored.append(LineStored(text=sentence, time=line_time))
+                    if audio.record_audio_buffer:
+                        audio.record_audio_buffer.resume_recording()
+                    ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
+                    self.tasks.append(ss_task)
+
     async def new_listener(self, url):
         is_Luna = False
         socket_signals.listener_state.emit(url, 1)
@@ -196,34 +222,19 @@ class WebsocketManagerThread(threading.Thread):
                     ws_url = f"ws://{url}/api/ws/text/origin"
                 async with websockets.connect(ws_url, ping_interval=None) as websocket:
                     socket_signals.listener_state.emit(url, 2)
-                    while True:
-                        msg = await websocket.recv()
-                        if not msg:
-                            continue
-                        line_time = datetime.now()
-                        self.text_received.put_nowait(msg)
-                        try:
-                            data = json.loads(msg)
-                            if "sentence" in data:
-                                sentence = data["sentence"]
-                        except json.JSONDecodeError:
-                            sentence = msg
-                        finally:
-                            if isinstance(sentence, str):
-                                text_stored.append(LineStored(text=sentence, time=line_time))
-                                # print(f"{audio.AudioBuffer.inactive = }, {audio.record_audio_buffer = }")
-                                if audio.record_audio_buffer:
-                                    audio.record_audio_buffer.resume_recording()
-                                ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
-                                self.tasks.append(ss_task)
-            except asyncio.CancelledError:
+                    await self.listener_loop(websocket)
+            except asyncio.CancelledError:  # noqa: PERF203
                 break
-            except Exception:
-                # print(e)
+            except (OSError, ConnectionRefusedError, websockets.exceptions.ConnectionClosedError) as e:
                 socket_signals.listener_state.emit(url, 1)
                 is_Luna = not is_Luna
-                # traceback.print_exc()
-                await asyncio.sleep(1)
+                logger.debug("Listener %s: %s", url, e)
+            except websockets.exceptions.InvalidStatus as e:
+                # TODO:inform user
+                logger.warning("Listener %s: %s", url, e)
+            except Exception as e:
+                logger.exception("listener %s", ws_url)
             else:
                 socket_signals.listener_state.emit(url, 0)
-                break
+            finally:
+                await asyncio.sleep(1)
