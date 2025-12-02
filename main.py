@@ -69,12 +69,30 @@ from UI.settings_gui import SettingsWindow
 
 from UI.custom_widgets.confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
-if platform == "win32":
+if platform in ["win32", "darwin"]:
     from player_sd import PlayerState, Player_Worker
 else:
     from player import PlayerState, Player_Worker
 
 from UI.custom_widgets import RegionSelect, CalibrationDialog
+
+import logging
+
+logger = logging.getLogger("app_logger")
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler("last_run.log", mode="w")
+fh.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+
+logger.addHandler(fh)
+logger.addHandler(ch)
 
 
 def _startMonitoring() -> None:
@@ -110,15 +128,6 @@ if is_wayland:
 else:
     startMonitoring = _startMonitoring
     stopMonitoring = _stopMonitoring
-
-
-
-class SelectionError(Exception):
-    """Raised when automatic selection in a widget fails."""
-
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)
 
 
 class UpdateSignals(QObject):
@@ -180,6 +189,30 @@ class UpdateWorker(QRunnable):
                 self.signals.update_windows.emit(win_titles, -1)
 
 
+class SessionComboBox(QComboBox):
+
+    def __init__(self):
+        super().__init__()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        new_name = self.currentText()
+
+        if not new_name:
+            return
+        if new_name == settings.general.last_session:
+            return
+
+        sessionsdb.sessions_dict[new_name] = sessionsdb.sessions_dict.pop(settings.general.last_session)
+        settings.general.last_session = new_name
+
+        with QSignalBlocker(self) as blocker:
+            curr_idx = self.currentIndex()
+            self.clear()
+            self.addItems(list(sessionsdb.sessions_dict.keys()))
+            self.setCurrentIndex(curr_idx)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):  # noqa: PLR0915
         super().__init__()
@@ -218,11 +251,11 @@ class MainWindow(QMainWindow):
         self.anki_box.setMinimumWidth(370)
         self.anki_box.setMaximumHeight(180)
 
-        self.session_select = QComboBox()
+        self.session_select = SessionComboBox()  #QComboBox()
         self.session_select.setEditable(True)
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
         self.session_select.currentIndexChanged.connect(self.set_session)
-        self.session_select.focusOutEvent = self.update_session_name
+        # self.session_select.focusOutEvent = self.update_session_name
 
         self.del_session_button = QPushButton("-")
         self.del_session_button.setMinimumWidth(21)
@@ -535,16 +568,17 @@ class MainWindow(QMainWindow):
         # Set session after creating othr widgets since they are
         # used in set_session
         if settings.general.last_session in sessionsdb.sessions_dict:
-            tmp_idx = list.index(list(sessionsdb.sessions_dict.keys()), settings.general.last_session)
+            tmp_idx = list(sessionsdb.sessions_dict.keys()).index(settings.general.last_session)
             self.session_select.setCurrentIndex(tmp_idx)
         else:
-            tmp_idx = list.index(list(sessionsdb.sessions_dict.keys()), "Manual")
+            tmp_idx = list(sessionsdb.sessions_dict.keys()).index("Manual")
             self.session_select.setCurrentIndex(tmp_idx)
         self.set_session(tmp_idx)
 
         # set audio_input after creating monitoring button
         if preferred_idx is not None:
             self.audio_input_select.setCurrentIndex(preferred_idx)
+            self.set_audio_input(preferred_idx)
         else:
             self.audio_input_select.setCurrentText("**No Input Selected**")
 
@@ -609,6 +643,8 @@ class MainWindow(QMainWindow):
         util.sockets.ws_server.start()
 
     def open_config(self) -> None:
+        if self.settings_window is not None:
+            self.settings_window = None
         self.settings_window = SettingsWindow()
         self.settings_window.general_page.listeners_updated.connect(
             self.update_listeners
@@ -665,29 +701,27 @@ class MainWindow(QMainWindow):
         @Slot()
         def update_note_button() -> None:
             if settings.general.last_session == "Manual":
-                # print("manual")
                 anki.start_manual_note_update(update_img=update_img, update_audio=update_audio)
                 return
             anki.start_auto_note_update(update_img=update_img, update_audio=update_audio, confirmation=sessionsdb.current_session["preview_note"])
         return update_note_button
 
-    def update_session_name(self, event) -> None:
-        new_name = self.session_select.currentText()
-        print(f"{new_name = }")
+    # def update_session_name(self, event) -> None:
+    #     new_name = self.session_select.currentText()
 
-        if not new_name:
-            return
-        if new_name == settings.general.last_session:
-            return
+    #     if not new_name:
+    #         return
+    #     if new_name == settings.general.last_session:
+    #         return
 
-        sessionsdb.sessions_dict[new_name] = sessionsdb.sessions_dict.pop(settings.general.last_session)
-        settings.general.last_session = new_name
+    #     sessionsdb.sessions_dict[new_name] = sessionsdb.sessions_dict.pop(settings.general.last_session)
+    #     settings.general.last_session = new_name
 
-        with QSignalBlocker(self.session_select) as blocker:
-            curr_idx = self.session_select.currentIndex()
-            self.session_select.clear()
-            self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
-            self.session_select.setCurrentIndex(curr_idx)
+    #     with QSignalBlocker(self.session_select) as blocker:
+    #         curr_idx = self.session_select.currentIndex()
+    #         self.session_select.clear()
+    #         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
+    #         self.session_select.setCurrentIndex(curr_idx)
 
     def update_selected_lines(self):
         tmp_idx = sorted([a.row() for a in self.listwidget.selectedIndexes()])
@@ -731,13 +765,13 @@ class MainWindow(QMainWindow):
             "continuous_recording": settings.audio.continuous_recording,
             "auto_update": settings.anki.auto_update_last_note,
             "open_in_browser": settings.anki.open_note_in_gui,
-            "preview_note": False,
+            "preview_note": True,
             "use_screen_region": False,
             "screen_region": (0, 0, 0, 0),
         }
         self.session_select.clear()
         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
-        self.session_select.setCurrentIndex(list.index(list(sessionsdb.sessions_dict.keys()), new_session_name))
+        self.session_select.setCurrentIndex(list(sessionsdb.sessions_dict.keys()).index(new_session_name))
 
     def del_session(self) -> None:
         sessionsdb.sessions_dict.pop(self.session_select.currentText())
@@ -756,6 +790,8 @@ class MainWindow(QMainWindow):
 
         settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
         sessionsdb.current_session = sessionsdb.sessions_dict[settings.general.last_session]
+        self.curr_app = None
+        self.curr_win = None
 
         self.continuous_recording.setChecked(sessionsdb.current_session["continuous_recording"])
         self.auto_update_check.setChecked(sessionsdb.current_session["auto_update"])
@@ -771,7 +807,6 @@ class MainWindow(QMainWindow):
             self.preview_note_check.setEnabled(True)
             self.session_select.setEditable(True)
 
-        self.window_select.setCurrentIndex(-1)
         try:
             self.apps = getAllApps()
             self.app_select.clear()
@@ -787,29 +822,27 @@ class MainWindow(QMainWindow):
             if self.app_select.currentText() == "**No App Selected**":
                 if sessionsdb.current_session["AppName"]:
                     msg = f"'{sessionsdb.current_session["AppName"]}' not running"
-                else:
-                    msg = ""
-                self.status_bar.showMessage(msg, 5000)
-                raise SelectionError(msg)  # noqa: TRY301
+                    self.status_bar.showMessage(msg, 5000)
+                    logger.info(msg)
+                return
 
             self.set_app(self.app_select.currentIndex())
-            self.window_select.setCurrentIndex(-1)
+            self.window_select.setCurrentText("**No Window Selected**")
 
             for i in range(len(self.windows)):
                 if self.windows[i].title == sessionsdb.current_session["WindowTitle"]:
                     self.window_select.setCurrentIndex(i)
                     break
 
-            if self.window_select.currentIndex() < 0:
+            if self.window_select.currentText() == "**No Window Selected**":
                 msg = f"'{sessionsdb.current_session["WindowTitle"]}' window not found"
                 self.status_bar.showMessage(msg, 5000)
-                self.window_select.setCurrentText("**No Window Selected**")
-                self.set_window(None)
-                raise SelectionError(msg)  # noqa: TRY301
+                # self.window_select.setCurrentText("**No Window Selected**")
+                # self.set_window(None)
+                logger.info(msg)
+                return
 
             self.set_window(self.window_select.currentIndex())
-        except SelectionError as e:
-            print(e)
         finally:
             self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
@@ -828,8 +861,8 @@ class MainWindow(QMainWindow):
             self.window_select.setCurrentText("**No Window Selected**")
             self.set_window(None)
         except (KeyError, IndexError, TypeError) as e:
-            print("No App Selected")
             self.curr_app = None
+            logger.info("No App Selected")
 
     def set_window(self, index: int) -> None:
         try:
@@ -839,9 +872,9 @@ class MainWindow(QMainWindow):
             sessionsdb.current_session["WindowTitle"] = self.windows[index].title
             self.curr_win = self.windows[index]
         except (KeyError, IndexError, TypeError) as e:
-            print("No Window Selected")
             screenshot.win = None
             self.curr_win = None
+            logger.info("No Window Selected")
 
 
     def set_audio_input(self, index: int) -> None:
@@ -854,8 +887,6 @@ class MainWindow(QMainWindow):
             return
 
         prev_channels = audio.buffer.channels if audio.buffer else audio.AudioBuffer.get_db_channels()
-
-        # print(f"{prev_channels = }")
 
         if prev_channels and self.audio_inputs[index].channels != prev_channels:
             alert = AlertDialog(
@@ -998,17 +1029,17 @@ class MainWindow(QMainWindow):
 def update_all_dbs() -> None:
     # TODO: update some dbs while the app is running
     # TODO: create window to show user saving progress
-    print("Updating database...")
-    print("Saving settings...")
+    logger.info("Updating database...")
+    logger.info("Saving settings...")
     settings.store_settings()
-    print("Saving images...")
+    logger.info("Saving images...")
     imagedb.store_imgs(screenshot.images_tmp)
-    print("Saving audio...")
+    logger.info("Saving audio...")
     audiodb.store_buffer_intervals(audio.buffer)
     audiodb.store_inactive_intervals(audio.buffer)
-    print("Saving lines")
+    logger.info("Saving lines")
     linedb.store_lines(util.sockets.text_stored)
-    print("Saving sessions")
+    logger.info("Saving sessions")
     sessionsdb.store_sessions()
 
 
