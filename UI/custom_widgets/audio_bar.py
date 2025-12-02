@@ -1,5 +1,6 @@
 from math import ceil, floor
 import numpy as np
+from collections.abc import Iterable
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
@@ -8,6 +9,7 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QMouseEvent,
+    QPaintEvent,
     QPainter,
     QPen,
 )
@@ -29,10 +31,24 @@ class AudioBar(QWidget):
     player_cursor_updated = Signal(int)
     zoom_changed = Signal(int)
 
-    def __init__(self, h, audio_data=None, start_interval=None, end_interval=None, *, scroll_zoom=False):
+    def __init__(
+        self,
+        h: int,
+        audio_data: Iterable[audio.AudioInterval] | None = None,
+        start_interval: int | None = None,
+        end_interval: int | None = None,
+    ) -> None:
+
         super().__init__()
         # zoom from 1 to 32
         self.zoom: int = 3
+
+        self.main_unit = 1
+        self.sub_unit = 0.1
+        one_sec_interval_px = 5/(settings.audio.interval_duration*self.zoom)
+        self.sub_unit_px = round(self.sub_unit * one_sec_interval_px)
+        self.main_unit_px = round(self.main_unit/self.sub_unit) * self.sub_unit_px
+
         self.h = h
         self.w = 0
         self.audio_data = audio_data or audio.buffer
@@ -50,15 +66,12 @@ class AudioBar(QWidget):
         self.handle_pressed = None
 
         self.playable = False
-        self.player_cursor = -100
+        self.player_cursor = -1
         self.player_cursor_x = 0
 
         self.old_mouse_pos_x = None
 
-        if scroll_zoom:
-            self.wheelEvent = self.wheelEvent_
-
-    def calculate_intervals(self):
+    def calculate_intervals(self) -> None:
         """
         Calculate intervals to draw.
 
@@ -92,6 +105,7 @@ class AudioBar(QWidget):
         self.setFixedWidth(self.w)
 
     def setZoom(self, scale: int) -> None:
+        """Update zoom and recalculate intervals and units."""
         if self.zoom == scale:
             return
         self.zoom = scale
@@ -100,12 +114,15 @@ class AudioBar(QWidget):
         self.w = (int(self.total_intervals/self.zoom) * 5) + 4
         self.setFixedSize(QSize(self.w, self.height()))
         self.calculate_intervals()
+        self.update_units()
         self.update()
 
     def setPlayable(self, playable: bool) -> None:  # noqa: FBT001
         """Display player cursor."""
         self.playable = playable
-        self.player_cursor = max(self.player_cursor, 0)
+        self.player_cursor = max(self.player_cursor, 0) if playable else -1
+        self.player_cursor_x = max(self.player_cursor_x, 0) if playable else -10
+        self.update()
 
     def setPlayerCursor(self, cursor: int) -> None:
         """Set cursor to a specific interval."""
@@ -135,7 +152,7 @@ class AudioBar(QWidget):
 
     # TODO: change cursor when close to handles
 
-    def mousePressEvent(self, event: QMouseEvent):
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         if self.left_handle is None:
             return
         if event.button() != Qt.MouseButton.LeftButton:
@@ -151,7 +168,7 @@ class AudioBar(QWidget):
             self.handle_pressed = "selection"
             self.old_mouse_pos_x = pos_x
 
-    def mouseReleaseEvent(self, event: QMouseEvent):
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
         if self.handle_pressed in ["player", "selection"] and self.playable:
@@ -159,97 +176,205 @@ class AudioBar(QWidget):
         self.handle_pressed = None
         self.old_mouse_pos_x = None
 
-    def mouseMoveEvent(self, event: QMouseEvent):
+    def move_left_handle(self, new_pos: float) -> None:
+        if new_pos > self.right_handle_x - 6:
+            self.left_handle = int((self.right_handle_x - 6 - 2)*self.zoom/5)
+        else:
+            # self.left_handle_x = 2+(self.left_handle)*5/self.zoom
+            self.left_handle = max(int((new_pos - 2)*self.zoom/5), 0)
+
+        if new_pos > self.player_cursor_x and self.playable:
+            self.player_cursor = self.left_handle
+
+        self.update()
+
+    def move_right_handle(self, new_pos: float) -> None:
+        if new_pos < self.left_handle_x + 6:
+            self.right_handle = int((self.left_handle_x + 6 - 2)*self.zoom/5)
+        else:
+            self.right_handle = min(int((new_pos - 2)*self.zoom/5), self.total_intervals)
+
+        if new_pos < self.player_cursor_x and self.playable:
+            self.player_cursor = self.right_handle
+
+        self.update()
+
+    def move_player_cursor(self, new_pos: float) -> None:
+        min_interval = self.left_handle or 0
+        max_interval = self.right_handle or self.total_intervals
+        tmp_interval = int((new_pos + 6 - 2)*self.zoom/5)
+
+        if tmp_interval < min_interval:
+            self.player_cursor = min_interval
+        elif tmp_interval > max_interval:
+            self.player_cursor = max_interval
+        else:
+            self.player_cursor = tmp_interval
+
+        self.update()
+
+    def move_selection_box(self, new_pos: float) -> None:
+        if self.old_mouse_pos_x is None:
+            return
+
+        diff_x = new_pos - self.old_mouse_pos_x
+        diff = round(diff_x*self.zoom/5)
+        self.old_mouse_pos_x = new_pos
+
+        if self.left_handle+diff < 0:
+            diff = -self.left_handle
+        elif self.right_handle+diff > self.total_intervals:
+            diff = self.total_intervals - self.right_handle
+
+        self.left_handle += diff
+        self.right_handle += diff
+        if self.playable:
+            self.player_cursor += diff
+        self.update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self.left_handle is None:
             return
 
         pos_x = event.pos().x()
 
         if self.handle_pressed == "left":
-
-            if pos_x > self.right_handle_x - 6:
-                self.left_handle = int((self.right_handle_x - 6 - 2)*self.zoom/5)
-            else:
-                # self.left_handle_x = 2+(self.left_handle)*5/self.zoom
-                self.left_handle = max(int((pos_x - 2)*self.zoom/5), 0)
-
-            if pos_x > self.player_cursor_x and self.playable:
-                self.player_cursor = self.left_handle
-
-            self.update()
-
+            self.move_left_handle(pos_x)
         elif self.handle_pressed == "right":
-
-            if pos_x < self.left_handle_x + 6:
-                self.right_handle = int((self.left_handle_x + 6 - 2)*self.zoom/5)
-            else:
-                self.right_handle = min(int((pos_x - 2)*self.zoom/5), self.total_intervals)
-
-            if pos_x < self.player_cursor_x and self.playable:
-                self.player_cursor = self.right_handle
-
-            self.update()
-
+            self.move_right_handle(pos_x)
         elif self.handle_pressed == "player":
-
-            min_interval = self.left_handle or 0
-            max_interval = self.right_handle or self.total_intervals
-            tmp_interval = int((pos_x + 6 - 2)*self.zoom/5)
-
-            if tmp_interval < min_interval:
-                self.player_cursor = min_interval
-            elif tmp_interval > max_interval:
-                self.player_cursor = max_interval
-            else:
-                self.player_cursor = tmp_interval
-
-            self.update()
-
+            self.move_player_cursor(pos_x)
         elif self.handle_pressed == "selection":
-            # TODO: create a handle or grab only on top and bottom margins
+            self.move_selection_box(pos_x)
 
-            diff_x = pos_x - self.old_mouse_pos_x
-            diff = round(diff_x*self.zoom/5)
-            self.old_mouse_pos_x = pos_x
-
-            if self.left_handle+diff < 0:
-                diff = -self.left_handle
-            elif self.right_handle+diff > self.total_intervals:
-                diff = self.total_intervals - self.right_handle
-
-            self.left_handle += diff
-            self.right_handle += diff
-            if self.playable:
-                self.player_cursor += diff
-
-            self.update()
-
-    wheel_step = 0
-
-    def wheelEvent_(self, event) -> None:
-        if abs(event.angleDelta().x()) > 2:  # noqa: PLR2004
-            self.wheel_step = 0
-            event.ignore()
-            return
-
-        if self.wheel_step * event.angleDelta().y() < 0:
-            self.wheel_step = 0
-
-        self.wheel_step += event.angleDelta().y()
-        delta = self.wheel_step//120
-
-        if abs(delta) > 0:
-            new_zoom = max(1, min(self.zoom+delta, 32))
-            self.setZoom(new_zoom)
-            self.wheel_step = 0
-
-        event.ignore()
-
-    def to_seconds(self, pixels):
+    def to_seconds(self, pixels: float) -> float:
         return (pixels-2)/5*settings.audio.interval_duration*self.zoom
 
-    def paintEvent(self, event):
+    def update_units(self):
+        if self.zoom < 5:  # noqa: PLR2004
+            self.main_unit = 1
+            self.sub_unit = 0.1
+        elif self.zoom < 10:  # noqa: PLR2004
+            self.main_unit = 2
+            self.sub_unit = 0.4
+        elif self.zoom < 25:  # noqa: PLR2004
+            self.main_unit = 2
+            self.sub_unit = 1
+        else:
+            self.main_unit = 5
+            self.sub_unit = 2.5
+
+        one_sec_interval_px = 5/(settings.audio.interval_duration*self.zoom)
+        self.sub_unit_px = round(self.sub_unit * one_sec_interval_px)
+        self.main_unit_px = round(self.main_unit/self.sub_unit) * self.sub_unit_px
+
+    def draw_bars(self, painter: QPainter, start_idx: int, end_idx: int) -> None:
+        voice_color = QColor(216, 191, 65)
+        no_voice_color = QColor(20, 20, 20)
+
+        pen = QPen()
+        pen.setColor(no_voice_color)
+
+        brush = QBrush()
+        brush.setColor(no_voice_color)
+        brush.setStyle(Qt.SolidPattern)
+
+        pen_voice = QPen()
+        pen_voice.setColor(voice_color)
+
+        brush_voice = QBrush()
+        brush_voice.setColor(voice_color)
+        brush_voice.setStyle(Qt.SolidPattern)
+
+        bar_x_pos = 2 + start_idx*5
+
+        for i in range(start_idx, end_idx):
+            rms, vad = self.intervals_rms_vad[i]
+
+            if vad:
+                painter.setPen(pen_voice)
+                painter.setBrush(brush_voice)
+            else:
+                painter.setPen(pen)
+                painter.setBrush(brush)
+
+            bar_heigth = (rms/self.peak) * (painter.device().height()-6)
+            bar_y_pos = (painter.device().height() - bar_heigth)/2
+            painter.drawRoundedRect(QRectF(bar_x_pos, bar_y_pos, 3, bar_heigth), 1, 3)
+            bar_x_pos += 5
+
+    def draw_selection_box(self, painter: QPainter) -> None:
+        selection_color_pen = QColor(252, 115, 10)
+        selection_color_brush = QColor(252, 115, 10, 127)
+
+        pen = QPen()
+        brush = QBrush()
+        brush.setStyle(Qt.SolidPattern)
+
+        pen.setColor(selection_color_pen)
+        painter.setPen(pen)
+        brush.setColor(selection_color_brush)
+        painter.setBrush(brush)
+
+        selection_w = (3 + (self.right_handle - self.left_handle)*5)/self.zoom
+        self.left_handle_x = 2+(self.left_handle)*5/self.zoom
+        self.right_handle_x = self.left_handle_x + selection_w
+        painter.drawRect(self.left_handle_x, 0, selection_w, painter.device().height())
+
+        handles_font = QFont()
+        handles_font.setPixelSize(10)
+        fm = QFontMetrics(handles_font)
+        painter.setFont(handles_font)
+        pen.setColor(QColor(0, 0, 0))
+        painter.setPen(pen)
+
+        # Draw left timestamp
+        left_to_sec = self.to_seconds(self.left_handle_x)
+        left_to_sec = (self.total_intervals * settings.audio.interval_duration) - left_to_sec
+        left_msec = round((left_to_sec % 1)*1000)
+        left_min, left_sec = divmod(left_to_sec, 60)
+        left_time_str = f"-{int(left_min):02d}:{int(left_sec):02d}.{left_msec:03d} "
+        left_txt_rect = fm.boundingRect(left_time_str).translated(self.left_handle_x, 0)
+
+        # Move left timestamp if too close to right handle
+        if selection_w < 2*(left_txt_rect.width()+5):
+            left_txt_rect.translate(3, painter.device().height()-left_txt_rect.height()-2)
+        else:
+            left_txt_rect.translate(3, painter.device().height()-1)
+
+        painter.drawText(left_txt_rect, left_time_str)
+
+        # Draw rigth timestamp
+        right_to_sec = self.to_seconds(self.right_handle_x)
+        right_to_sec = (self.total_intervals * settings.audio.interval_duration) - right_to_sec
+        right_msec = round((right_to_sec % 1)*1000)
+        right_min, right_sec = divmod(right_to_sec, 60)
+        right_time_str = f"-{int(right_min):02d}:{int(right_sec):02d}.{right_msec:03d} "
+        right_txt_rect = fm.boundingRect(right_time_str).translated(self.right_handle_x, 0)
+        right_txt_rect.translate(-right_txt_rect.width()-3, painter.device().height()-1)
+        painter.drawText(right_txt_rect, right_time_str)
+
+    def draw_timeline(self, painter: QPainter, start_px: int, end_px: int) -> None:
+        pen = QPen()
+        pen.setColor(QColor(30, 30, 30))
+        painter.setPen(pen)
+
+        current_px = start_px
+
+        while current_px < end_px:
+            if abs((current_px-2) % self.main_unit_px) < 0.01:  # noqa: PLR2004
+                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 10))
+            else:
+                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 5))
+            current_px += self.sub_unit_px
+
+
+    def paintEvent(self, event: QPaintEvent):
         super().paintEvent(event)
+
+        start_idx = max(((event.rect().x()-2)//5)-10, 0)
+        end_idx = ((event.rect().x()+event.rect().width()-2)//5)+10
+        end_idx = min(end_idx, len(self.intervals_rms_vad))
 
         if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark:
             background_color = QColor(100, 100, 100)
@@ -268,85 +393,12 @@ class AudioBar(QWidget):
         # Draw Background
         painter.drawRect(0, 0, painter.device().width(), painter.device().height())
 
-        pen_voice = QPen()
-        pen_voice.setColor(QColor(216, 191, 65))
-        brush_voice = QBrush()
-        brush_voice.setColor(QColor(216, 191, 65))
-        brush_voice.setStyle(Qt.SolidPattern)
-
-        no_voice_color = QColor(20, 20, 20)
-        pen.setColor(no_voice_color)
-        brush.setColor(no_voice_color)
-        painter.setPen(pen)
-        painter.setBrush(brush)
-
-        start_idx = max(((event.rect().x()-2)//5)-10, 0)
-        end_idx = ((event.rect().x()+event.rect().width()-2)//5)+10
-        end_idx = min(end_idx, len(self.intervals_rms_vad))
-        bar_x_pos = 2 + start_idx*5
-
-        # Draw bars
-        for i in range(start_idx, end_idx):
-            rms, vad = self.intervals_rms_vad[i]
-
-            if vad:
-                painter.setPen(pen_voice)
-                painter.setBrush(brush_voice)
-            else:
-                painter.setPen(pen)
-                painter.setBrush(brush)
-
-            bar_heigth = (rms/self.peak) * (painter.device().height()-6)
-            bar_y_pos = (painter.device().height() - bar_heigth)/2
-            painter.drawRoundedRect(QRectF(bar_x_pos, bar_y_pos, 3, bar_heigth), 1, 3)
-            bar_x_pos += 5
+        # Draw audio intervals as bars
+        self.draw_bars(painter, start_idx, end_idx)
 
         # Draw Selection box
         if self.left_handle is not None and self.right_handle is not None:
-            selection_color_pen = QColor(252, 115, 10)
-            selection_color_brush = QColor(252, 115, 10, 127)
-            pen.setColor(selection_color_pen)
-            painter.setPen(pen)
-            brush.setColor(selection_color_brush)
-            painter.setBrush(brush)
-
-            selection_w = (3 + (self.right_handle - self.left_handle)*5)/self.zoom
-            self.left_handle_x = 2+(self.left_handle)*5/self.zoom
-            self.right_handle_x = self.left_handle_x + selection_w
-            painter.drawRect(self.left_handle_x, 0, selection_w, painter.device().height())
-
-            handles_font = QFont()
-            handles_font.setPixelSize(10)
-            fm = QFontMetrics(handles_font)
-            painter.setFont(handles_font)
-            pen.setColor(QColor(0, 0, 0))
-            painter.setPen(pen)
-
-            # Draw left timestamp
-            left_to_sec = self.to_seconds(self.left_handle_x)
-            left_to_sec = (self.total_intervals * settings.audio.interval_duration) - left_to_sec
-            left_msec = round((left_to_sec % 1)*1000)
-            left_min, left_sec = divmod(left_to_sec, 60)
-            left_time_str = f"-{int(left_min):02d}:{int(left_sec):02d}.{left_msec:03d} "
-            left_txt_rect = fm.boundingRect(left_time_str).translated(self.left_handle_x, 0)
-
-            # Move left timestamp if too close to right handle
-            if selection_w < 2*(left_txt_rect.width()+5):
-                left_txt_rect.translate(3, painter.device().height()-left_txt_rect.height()-2)
-            else:
-                left_txt_rect.translate(3, painter.device().height()-1)
-
-            painter.drawText(left_txt_rect, left_time_str)
-
-            # Draw rigth timestamp
-            right_to_sec = self.to_seconds(self.right_handle_x)
-            right_to_sec = (self.total_intervals * settings.audio.interval_duration) - right_to_sec
-            right_msec = round((right_to_sec % 1)*1000)
-            right_min, right_sec = divmod(right_to_sec, 60)
-            right_time_str = f"-{int(right_min):02d}:{int(right_sec):02d}.{right_msec:03d} "
-            right_txt_rect = fm.boundingRect(right_time_str).translated(self.right_handle_x, 0)
-            right_txt_rect.translate(-right_txt_rect.width()-3, painter.device().height()-1)
-            painter.drawText(right_txt_rect, right_time_str)
+            self.draw_selection_box(painter)
 
         # Draw Player Cursor
         if self.playable:
@@ -358,42 +410,10 @@ class AudioBar(QWidget):
             painter.drawLine(self.player_cursor_x, 0, self.player_cursor_x, painter.device().height())
 
         # Draw timeline
-        pen.setColor(QColor(30, 30, 30))
-        painter.setPen(pen)
-
-        one_sec_interval_px = 5/(settings.audio.interval_duration*self.zoom)
-
-        # TODO: Move zoom sections to a function / dict
-        if self.zoom < 5:  # noqa: PLR2004
-            main_unit = 1
-            sub_unit = 0.1
-        elif self.zoom < 10:  # noqa: PLR2004
-            main_unit = 2
-            sub_unit = 0.4
-        elif self.zoom < 25:  # noqa: PLR2004
-            main_unit = 2
-            sub_unit = 1
-        else:
-            main_unit = 5
-            sub_unit = 2.5
-
-        # main_unit_px = main_unit * one_sec_interval_px
-        sub_unit_px = round(sub_unit * one_sec_interval_px)
-        main_unit_px = round(main_unit/sub_unit) * sub_unit_px
-        # print(f"main_unit_px: {main_unit_px}, sub_unit_px: {sub_unit_px};")
-
-        start_px = floor((event.rect().x()-2)/sub_unit_px) * sub_unit_px + 2 - 5*sub_unit_px
+        start_px = floor((event.rect().x()-2)/self.sub_unit_px) * self.sub_unit_px + 2 - 5*self.sub_unit_px
         start_px = max(2, floor(start_px))
-        end_px = ceil((event.rect().x()+event.rect().width()-2)/sub_unit_px) * sub_unit_px + 2 + 5*sub_unit_px
+        end_px = ceil((event.rect().x()+event.rect().width()-2)/self.sub_unit_px) * self.sub_unit_px + 2 + 5*self.sub_unit_px
         end_px = min(ceil(end_px), self.w)
-        current_px = start_px
-
-        while current_px < end_px:
-            # print(f"current_px: {current_px},   (current_px-2) % main_unit_px: {(current_px-2) % main_unit_px};")
-            if abs((current_px-2) % main_unit_px) < 0.01:  # noqa: PLR2004
-                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 10))
-            else:
-                painter.drawLine(QPointF(current_px, 0), QPointF(current_px, 5))
-            current_px += sub_unit_px
+        self.draw_timeline(painter, start_px, end_px)
 
         painter.end()

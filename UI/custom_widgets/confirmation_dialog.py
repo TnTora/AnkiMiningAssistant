@@ -38,7 +38,7 @@ from .audio_bar import AudioBar
 from util.screenshot import ImageStored
 from util.audio import AudioBuffer
 
-if sys.platform == "win32":
+if sys.platform in ["win32", "darwin"]:
     from player_sd import PlayerState, Player_Worker
 else:
     from player import PlayerState, Player_Worker
@@ -265,9 +265,9 @@ class NotePreviewDialog(QDialog):
             self.audio_top_label = QLabel("Audio Preview")
             self.audio_top_label.setFont(self.header_font)
 
-            self.audio_bar = AudioBar(h=80, audio_data=audio_data, start_interval=audio_range[0], end_interval=audio_range[1], scroll_zoom=False)
-            self.audio_bar.setPlayable(True)
-            self.audio_bar.setPlayerCursor(40)
+            self.audio_bar = AudioBar(h=80, audio_data=audio_data, start_interval=audio_range[0], end_interval=audio_range[1])
+            self.audio_bar.setPlayable(False)
+            # self.audio_bar.setPlayerCursor(40)
             self.audio_bar.player_cursor_updated.connect(
                 self.update_bar_cursor
             )
@@ -380,9 +380,10 @@ class NotePreviewDialog(QDialog):
             self.play_button.setText("Play")
             self.player.stop()
         else:
-            if self.audio_bar.player_cursor == self.audio_bar.right_handle:
+            if self.audio_bar.player_cursor < 0:
                 self.player_state.setCursor(self.audio_bar.left_handle)
                 self.audio_bar.setPlayerCursor(self.audio_bar.left_handle)
+            self.audio_bar.setPlayable(True)
             self.play_button.setText("Pause")
             self.player = Player_Worker(self.player_state, audio_data=self.audio_data)
             self.player.start()
@@ -401,10 +402,12 @@ class NotePreviewDialog(QDialog):
             cursor = self.audio_bar.left_handle
             self.audio_bar.setPlayerCursor(cursor=self.audio_bar.left_handle)
         elif cursor >= self.audio_bar.right_handle:
-            cursor = self.audio_bar.right_handle
+            # cursor = self.audio_bar.right_handle
             self.player.stop()
             self.play_button.setText("Play")
-            self.audio_bar.setPlayerCursor(cursor=self.audio_bar.right_handle)
+            # self.audio_bar.setPlayerCursor(cursor=self.audio_bar.right_handle)
+            self.audio_bar.setPlayable(False)
+            return
         else:
             self.audio_bar.setPlayerCursor(cursor)
 
