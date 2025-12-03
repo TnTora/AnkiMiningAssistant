@@ -13,6 +13,10 @@ import os
 
 from util.database import settings
 
+import logging
+
+logger = logging.getLogger("app_logger")
+
 
 def getAppWindows(app):
     return []
@@ -29,6 +33,17 @@ resolutions = {
 
 # -------- dbus xdg-desktop-portal-------------
 
+class PortalError(Exception):
+
+    def __init__(self, message, interface, err_code):
+        super().__init__(message)
+        self.interface = interface
+        self.err_code = err_code
+
+    def __str__(self):
+        return f"{self.interface}: {self.message} (response: {self.err_code})"
+
+
 class ScreenCast:
 
     src_type = {
@@ -42,7 +57,7 @@ class ScreenCast:
             bus_name="org.freedesktop.portal.Desktop",
         )
         self.screencast = self.portal.with_interface("org.freedesktop.portal.ScreenCast")
-        self.session_token = "screencast_session_token"
+        self.session_token = "screencast_session_token"  # noqa: S105
         self.session_handle = None
         self.node_id = None
         self.restore_token = {
@@ -105,22 +120,21 @@ class ScreenCast:
         response, results = response_msg.body
 
         if response == 0:
-            print(f"{results = }")
+            logger.debug("%s results: %s", method_name, results)
             return results
-        # raise exception for failure
-        # TODO: create custom error and/or decide wheter to retry or close the connection
+
         msg = f"method '{method_name}' failed."
-        raise Exception(msg)
+        raise PortalError(msg, interface="org.freedesktop.portal.ScreenCast", err_code=response)
 
     def create_session(self):
         options = {
             "handle_token": ("s", "create_session"),
             "session_handle_token": ("s", self.session_token),
         }
-        repl = self.call_method(token="create_session", method_name="CreateSession", signature="a{sv}", options=(options,))
+        repl = self.call_method(token="create_session", method_name="CreateSession", signature="a{sv}", options=(options,))  # noqa: S106
 
         self.session_handle = repl["session_handle"][1]
-        print(f"{self.session_handle = }")
+        logger.debug("session handle: %s", self.session_handle)
 
     def select_sources(self, src_type: str = "WINDOW"):
         options = {
@@ -130,21 +144,21 @@ class ScreenCast:
         }
         if self.restore_token[src_type] is not None:
             options["restore_token"] = ("s", self.restore_token[src_type])
-        repl = self.call_method(token="select_sources", method_name="SelectSources", signature="oa{sv}", options=(self.session_handle, options))
-        print("Selected Source")
+        repl = self.call_method(token="select_sources", method_name="SelectSources", signature="oa{sv}", options=(self.session_handle, options))  # noqa: S106
+        logger.info("Source Selected")
 
     def start_session(self, src_type: str = "WINDOW"):
         options = {
             "handle_token": ("s", "start"),
         }
-        repl = self.call_method(token="start", method_name="Start", signature="osa{sv}", options=(self.session_handle, "", options))
+        repl = self.call_method(token="start", method_name="Start", signature="osa{sv}", options=(self.session_handle, "", options))  # noqa: S106
 
         self.node_id = repl["streams"][1][0][0]
 
         if "restore_token" in repl:
             self.restore_token[src_type] = repl["restore_token"][1]
 
-        print(f"{self.node_id = }")
+        logger.debug("node id: %s", self.node_id)
 
 
 class ScreenShot:
@@ -160,12 +174,12 @@ class ScreenShot:
             bus_name="org.freedesktop.portal.Desktop",
         )
         self.screenshot = self.portal.with_interface("org.freedesktop.portal.Screenshot")
-        self.handle_token = "screenshot_handle_token"
+        self.handle_token = "screenshot_handle_token"  # noqa: S105
 
     def grab(self):
         conn = open_dbus_connection()
         sender_name = conn.unique_name[1:].replace(".", "_")
-        print(f"{sender_name = }")
+        logger.debug("sender name: %s", sender_name)
 
         handle = f"/org/freedesktop/portal/desktop/request/{sender_name}/{self.handle_token}"
 
@@ -197,12 +211,12 @@ class ScreenShot:
             # raise exception for failure
             # TODO: create custom error and/or decide wheter to retry or close the connection
             msg = f"Screenshot failed."
-            raise Exception(msg)
-        print(f"{results = }")
+            raise PortalError(msg, interface="org.freedesktop.portal.Screenshot", err_code=response)
+        logger.debug("ScreenShot grab results: %s", results)
         filepath = results["uri"][1].split("file://", 1)[-1]
         img = Image.open(filepath)
         # remove original file
-        os.remove(filepath)
+        os.remove(filepath)  # noqa: PTH107
         return img
 
 # -------- retrieve obj serial from node id --------------
@@ -215,13 +229,13 @@ def make_registry_handle(fct_name, extra_data):
             pipewire.lib.pw_main_loop_quit(extra_data["loop"])
             return
 
-        print(f"object: id:{obj_id} type:{pipewire.ffi.string(obj_type).decode()}/{version}")
+        logger.debug("object: id:%s type:%s/%s", obj_id, pipewire.ffi.string(obj_type).decode(), version)
 
         for i in range(props.n_items):
             if pipewire.ffi.string(props.items[i].key) != b"object.serial":
                 continue
             extra_data["result"] = pipewire.ffi.string(props.items[i].value)
-            print(f"{pipewire.ffi.string(props.items[i].key)}: {pipewire.ffi.string(props.items[i].value)}")
+            logger.debug("%s: %s", pipewire.ffi.string(props.items[i].key), pipewire.ffi.string(props.items[i].value))
             break
 
         pipewire.lib.pw_main_loop_quit(extra_data["loop"])
@@ -282,14 +296,14 @@ class PipewireStream(threading.Thread):
         def cb_process():
             b = pipewire.lib.pw_stream_dequeue_buffer(extra_data["stream"])
             if b == pipewire.ffi.NULL:
-                print("out of buffers")
+                logger.debug("Pipewire: out of buffers")
                 return
 
             buf = b.buffer
             if buf.datas[0].data == pipewire.ffi.NULL:
                 return
 
-            print(f"got a frame of size {buf.datas[0].chunk.size}")
+            # print(f"got a frame of size {buf.datas[0].chunk.size}")
 
             self.curr_frame = buf.datas[0]
 
@@ -310,10 +324,10 @@ class PipewireStream(threading.Thread):
 
             self.width = extra_data["format"].info.raw.size.width
             self.height = extra_data["format"].info.raw.size.height
-            print("got video format:")
-            print(f"  format: {extra_data['format'].info.raw.format} ({pipewire.ffi.string(pipewire.lib.spa_debug_type_find_name(pipewire.lib.spa_type_video_format, extra_data['format'].info.raw.format)).decode()})")
-            print(f"  size: {extra_data['format'].info.raw.size.width}x{extra_data['format'].info.raw.size.height}")
-            print(f"  framerate: {extra_data['format'].info.raw.framerate.num}/{extra_data['format'].info.raw.framerate.denom}")
+            logger.debug("got video format:")
+            logger.debug("  format: %s (%s)", extra_data["format"].info.raw.format, pipewire.ffi.string(pipewire.lib.spa_debug_type_find_name(pipewire.lib.spa_type_video_format, extra_data["format"].info.raw.format)).decode())
+            logger.debug("  size: %sx%s", self.width, self.height)
+            logger.debug("  framerate: %s/%s", extra_data["format"].info.raw.framerate.num, extra_data["format"].info.raw.framerate.denom)
 
         return pipewire.ffi.new_handle({"process": cb_process, "param_changed": cb_param_changed})
 
@@ -364,7 +378,7 @@ class PipewireStream(threading.Thread):
         cb_data = {"loop": loop, "format": fmt}
         cb_handle = self.make_stream_handle(cb_data)
 
-        print("creating stream")
+        logger.info("Pipewire: creating stream")
         stream = pipewire.lib.pw_stream_new_simple(
             pipewire.lib.pw_main_loop_get_loop(loop),
             b"video-capture",
@@ -408,7 +422,7 @@ class PipewireStream(threading.Thread):
             pipewire.ffi.NULL,
         )
         params[0] = pipewire.lib.spa_pod_builder_pop(b, f)
-        print("connecting...")
+        logger.info("Pipewire: connecting stream...")
         pipewire.lib.pw_stream_connect(
             stream,
             pipewire.lib.PW_DIRECTION_INPUT,
@@ -438,7 +452,7 @@ def capture_screenshot(save_path: str | None = None, win = None, screen_region: 
 
     # print(f"{pipewire_stream.curr_frame.chunk = }, {pipewire_stream.curr_frame.data = }, {(pipewire_stream.width, pipewire_stream.height) = }")
 
-    if settings.general.last_session == "Manual":
+    if pipewire_stream is None: # settings.general.last_session == "Manual":
         img = screenshot.grab()
     elif not(pipewire_stream is None or pipewire_stream.curr_frame is None):
         # construct Image from the data obtained using pipewire
@@ -486,9 +500,12 @@ def start_screencapture(src_type: str = "WINDOW"):
     obj_serial = get_obj_serial(screencast.node_id)
     pipewire_stream = PipewireStream(obj_serial)
     pipewire_stream.start()
-    print("screencapture started")
+    logger.info("Screencapture started")
 
 def stop_screencapture():
+    global pipewire_stream  # noqa: PLW0603
     screencast.close_session()
     pipewire_stream.stop_loop()
-    print("screencapture stopped")
+    pipewire_stream.join()
+    pipewire_stream = None
+    logger.info("Screencapture stopped")
