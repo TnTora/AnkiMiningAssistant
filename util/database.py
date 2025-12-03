@@ -9,7 +9,7 @@ import json
 
 class GeneralSettings:
 
-    last_session = None
+    last_session = "Manual"
     storage_time_limit = timedelta(minutes=5, seconds=0)
     ws_port = 6678
     listen_urls = ["localhost:6677", "localhost:2333"]
