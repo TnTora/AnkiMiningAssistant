@@ -22,16 +22,12 @@ from io import BytesIO
 from PIL import Image
 from math import sqrt
 
+import logging
+
+logger = logging.getLogger("app_logger")
+
 
 runLoop = NSRunLoop.currentRunLoop()
-
-
-class MacOSError(Exception):
-    """Raised for error specific to MacOS."""
-
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)
 
 
 class Window:
@@ -152,7 +148,14 @@ try:
         SCCaptureResolutionBest,
     )
 
-    def capture_screenshot(save_path: str | None = None, win: Window | None = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p") -> str | BytesIO:
+    def capture_screenshot(  # noqa: C901, PLR0915
+        save_path: str | None = None,
+        win: Window | None = None,
+        screen_region: tuple | None = None,
+        img_format: str = "WebP",
+        max_resolution: str = "1080p",
+    ) -> str | BytesIO:
+
         finish = threading.Event()
         file_data = None
         container = save_path or BytesIO()
@@ -201,7 +204,6 @@ try:
 
             if screen_region:
                 x1, y1, x2, y2 = screen_region
-                # print(f"{CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)) = }")
                 configuration.setSourceRect_(CGRect(CGPoint(x1, y1), CGSize(x2-x1, y2-y1)))
                 width = x2-x1
                 height = y2-y1
@@ -237,7 +239,7 @@ try:
                 NSBitmapImageFileTypePNG, None
             )
 
-            print(f"image size: {len(data)}")
+            logger.debug("image size: %s", len(data))
             file_data = BytesIO(data)
             with Image.open(file_data) as img:
                 img.save(container, format=img_format)

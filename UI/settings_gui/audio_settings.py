@@ -25,7 +25,7 @@ class AudioPage(SettingsPage):
 
     settings_widgets = {}
 
-    def __init__(self):
+    def __init__(self):  # noqa: PLR0915
         super().__init__()
         self.layout_rows = []
 

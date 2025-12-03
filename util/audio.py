@@ -23,6 +23,10 @@ else:
     def _isloopback(audio_input):
         return audio_input.isloopback
 
+import logging
+
+logger = logging.getLogger("app_logger")
+
 monitoringAudio = None
 audio_input = None
 buffer = None
@@ -219,7 +223,6 @@ class AudioBuffer:
         offset = timedelta(seconds=0)
 
         for interval in reversed(cls.inactive_intervals):
-            # print(f"{interval.start_time = }; {interval.end_time = }")
             if interval.start_time > final_time:
                 continue
             if interval.end_time and final_time < interval.end_time:
@@ -260,7 +263,7 @@ class AudioBuffer:
             curr_time = datetime.now()
 
         if curr_time - line_time - AudioBuffer.total_offset > AudioBuffer.storage_time_limit:
-            print("Outside Buffer scope")
+            logger.info("Line outside Buffer scope")
             return None, None, None
 
         data_copy = self.copy_slice()
@@ -268,8 +271,7 @@ class AudioBuffer:
         timing_adjustment = AudioBuffer.get_timing_adjustment(curr_time, line_time)
 
         if timing_adjustment is None:
-            # TODO: log
-            print("no audio at line timestamp")
+            logger.info("No audio at line timestamp")
             return None, None, None
 
         if next_line_time:
@@ -324,6 +326,7 @@ class recordAudioBuffer(threading.Thread):
 
     def stop_recording(self):
         self.stop_rec.set()
+        logger.info("Stop monitoring")
 
     def resume_recording(self):
         self.PAUSE = 0
@@ -334,6 +337,7 @@ class recordAudioBuffer(threading.Thread):
     def run(self):
         self.PAUSE = 0
         AudioBuffer.resume()
+        logger.info("Start monitoring")
         with audio_input.recorder(samplerate=AudioSettings.samplerate, blocksize=self.blocksize) as r:
             while True:
 
@@ -345,8 +349,7 @@ class recordAudioBuffer(threading.Thread):
                     buffer.deque.extend(secondary_buffer.deque)
                     AudioBuffer.resume(offset=len(secondary_buffer)*AudioSettings.interval_duration)
                     self.resume_rec = threading.Event()
-                    print("resuming")
-                    # print(f"{datetime.now().strftime('%H_%M_%S')}: {self.PAUSE = }, {self.PAUSE*AudioSettings.interval_duration}")
+                    logger.info("Resume monitoring")
 
                 _data = r.record(numframes=int(AudioSettings.samplerate*AudioSettings.interval_duration))
 
@@ -361,20 +364,21 @@ class recordAudioBuffer(threading.Thread):
                 speech_prob = model(data_tensor, 16000).item()
 
                 if speech_prob < AudioSettings.vad_threshold and not AudioBuffer.inactive:
-                    self.PAUSE += 1 # AudioSettings.interval_duration
+                    self.PAUSE += 1
                 else:
                     self.PAUSE = 0
                     if AudioBuffer.inactive and AudioSettings.resume_on_detected_voice:
                         AudioBuffer.resume()
 
                 # print(f"prob: {speech_prob};    self.PAUSE: {self.PAUSE}; {datetime.now().strftime('%H_%M_%S')}")
+                # logger.debug("PAUSE: %s (%s); speech_prob: %s", self.PAUSE, self.PAUSE*AudioSettings.interval_duration, speech_prob)
 
                 if AudioBuffer.inactive:
                     secondary_buffer.update(_data, speech_prob)
                     continue
 
                 if AudioSettings.pause_threshold < self.PAUSE*AudioSettings.interval_duration and not sessionsdb.current_session["continuous_recording"]:
-                    print("pausing")
+                    logger.info("Pause monitoring")
                     # print(f"{datetime.now().strftime('%H_%M_%S')}: {self.PAUSE = }, {self.PAUSE*AudioSettings.interval_duration}")
                     secondary_buffer.deque.clear()
                     AudioBuffer.pause()

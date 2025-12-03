@@ -182,7 +182,7 @@ class OffsetCalibration(QWidget):
             bot_right.y()+self.y_offset.value(),
         )
         self.coords = screen_region
-        print(f"{self.target.geometry().topLeft() = }\n{self.target.geometry().bottomRight() = }\n{screen_region = }")
+        # print(f"{self.target.geometry().topLeft() = }\n{self.target.geometry().bottomRight() = }\n{screen_region = }")
         return screen_region
 
     def update_pixmap(self, pixmap=None, *, crop: bool = True):
