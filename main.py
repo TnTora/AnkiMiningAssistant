@@ -634,10 +634,6 @@ class MainWindow(QMainWindow):
         util.sockets.ws_server.join()
         util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
 
-        # for listener in self.listeners_status.values():
-        #     self.status_bar.removeWidget(listener)
-        #     listener.deleteLater()
-        # self.listeners_status = {}
         self.add_listeners_status()
 
         util.sockets.ws_server.start()

@@ -118,6 +118,7 @@ class WebsocketManagerThread(threading.Thread):
         return self._loop
 
     def stop_server(self):
+        logger.info("Stopping WebSocket Server")
         for task in self.tasks:
             task.cancel()
         self.main_task.cancel()
@@ -166,6 +167,7 @@ class WebsocketManagerThread(threading.Thread):
                         self.main_task = asyncio.create_task(self.send_to_texthooker())
                         await self.main_task
                 except asyncio.CancelledError:  # noqa: PERF203
+                    logger.info("WebSocket Server: Cancelled")
                     break
                 except Exception as e:
                     socket_signals.ws_state.emit(1)
@@ -173,7 +175,8 @@ class WebsocketManagerThread(threading.Thread):
                     await asyncio.sleep(1)
                 else:
                     socket_signals.ws_state.emit(0)
-                    # break
+                    logger.info("WebSocket Server: stopped")
+                    break
 
 
         async def main():
@@ -222,19 +225,23 @@ class WebsocketManagerThread(threading.Thread):
                     ws_url = f"ws://{url}/api/ws/text/origin"
                 async with websockets.connect(ws_url, ping_interval=None) as websocket:
                     socket_signals.listener_state.emit(url, 2)
+                    logger.info("Listener %s: connected", url)
                     await self.listener_loop(websocket)
             except asyncio.CancelledError:  # noqa: PERF203
+                logger.info("Listener %s: Cancelled", url)
                 break
             except (OSError, ConnectionRefusedError, websockets.exceptions.ConnectionClosedError) as e:
                 socket_signals.listener_state.emit(url, 1)
-                is_Luna = not is_Luna
                 logger.debug("Listener %s: %s", url, e)
             except websockets.exceptions.InvalidStatus as e:
-                # TODO:inform user
-                logger.warning("Listener %s: %s", url, e)
+                socket_signals.listener_state.emit(url, 1)
+                is_Luna = not is_Luna
+                logger.debug("Listener %s: %s", url, e)
             except Exception as e:
                 logger.exception("listener %s", ws_url)
             else:
                 socket_signals.listener_state.emit(url, 0)
+                logger.info("Listener %s: stopped", url)
+                break
             finally:
                 await asyncio.sleep(1)
