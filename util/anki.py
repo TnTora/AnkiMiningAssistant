@@ -7,9 +7,10 @@ from pathlib import Path
 from time import sleep
 from datetime import datetime
 from copy import copy
-import traceback
+# import traceback
 import soundfile as sf
 from itertools import islice
+from enum import Enum
 
 from PySide6.QtCore import QObject, Signal
 
@@ -18,6 +19,10 @@ from util import audio
 from util import screenshot
 from util.database import AnkiSettings, settings, sessionsdb
 
+import logging
+
+logger = logging.getLogger("app_logger")
+
 previous_notes = set()
 last_note = None
 last_note_update_time = None
@@ -25,6 +30,15 @@ last_note_info = None
 last_note_sentence_clean = None
 
 start_session = datetime.now()
+
+
+class AnkiStatus(Enum):
+    STOPPED = 0
+    STARTED = 1
+    CONNECTED = 2
+
+
+curr_status = AnkiStatus.STOPPED
 
 
 class AnkiSignals(QObject):
@@ -46,6 +60,11 @@ class AnkiSignals(QObject):
         self.returned_value = None
         return tmp_result
 
+    def update_status(self, status: AnkiStatus):
+        global curr_status  # noqa: PLW0603
+        curr_status = status
+        self.anki_status.emit(status.value)
+
 
 anki_signals = AnkiSignals()
 
@@ -55,21 +74,25 @@ def request(action, **params):
 
 
 def invoke(action, **params):
-    # TODO: Substiture exception with logging and returing None
     try:
         requestJson = json.dumps(request(action, **params)).encode("utf-8")
         response = json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{AnkiSettings.port}", requestJson)))
         if len(response) != 2:  # noqa: PLR2004
-            raise Exception("response has an unexpected number of fields")
+            logger.error("AnkiConnect : response has an unexpected number of fields (%s, %s)", action, params)
+            return None
         if "error" not in response:
-            raise Exception("response is missing required error field")
+            logger.error("AnkiConnect: response is missing required error field (%s, %s)", action, params)
+            return None
         if "result" not in response:
-            raise Exception("response is missing required result field")
+            logger.error("AnkiConnect: response is missing required result field (%s, %s)", action, params)
+            return None
         if response["error"] is not None:
-            raise Exception(response["error"])
+            logger.error("AnkiConnect: %s (%s, %s)", response["error"], action, params)
+            return None
         return response["result"]
-    except Exception:
-        # traceback.print_exc()
+    except (urllib.error.URLError, ConnectionResetError) as e:
+        if curr_status == AnkiStatus.CONNECTED:
+            logger.error("AnkiConnect: %s (%s, %s)", e, action, params)  # noqa: TRY400
         return None
 
 
@@ -90,6 +113,8 @@ def get_note_types_fields(name):
 
 def get_all_note_types_fields(names):
     results = invoke("findModelsByName", modelNames=names)
+    if results is None:
+        return None
     fields_dict = {result["name"]: [field["name"] for field in result["flds"]] for result in results}
     return fields_dict
 
@@ -98,7 +123,8 @@ def get_last_note():
     results = invoke("findNotes", query=f"deck:{AnkiSettings.deck} added:1")
     if results:
         return max(results)
-    raise Exception("No note found")
+    # raise Exception("No note found")
+    return None
 
 
 def get_note_info(note):
@@ -130,33 +156,35 @@ def update_note(note_id, fields, tags=""):
 
 
 def estimate_last_interval(buffer_copy):
-    # Check for the first interval of no voice in the last 20 seconds (or less if not availables) to get interval_end
-    # Then find a pause in the voice of at least pause_threshold to find interval_start
+    """
+    Estimate timings for last voiced interval.
+
+    Traverses buffer in reverse until last voiced interval is found,
+    then keeps going until a pause in the voice is found or the 10s limit is reached.
+    """
     if len(buffer_copy) == 0:
         return None
 
     interval_start = max(0, len(buffer_copy)-int(5/settings.audio.interval_duration))
-    interval_end = len(buffer_copy)
-    pause_threshold = 2
+    interval_end = len(buffer_copy) - 1
+    pause_threshold = 2/settings.audio.interval_duration
     margin = 0.2
 
-    end_found = False
-    pause = 0
-    for i in range(len(buffer_copy)-1, max(0, len(buffer_copy) - int(20/settings.audio.interval_duration)), -1):
-        if not end_found:
-            if buffer_copy[i].vad <= settings.audio.vad_threshold:
-                continue
-            interval_end = min(interval_end, i + int(margin/settings.audio.interval_duration))
-            end_found = True
-            continue
-
+    for i in range(len(buffer_copy)-1, -1, -1):
         if buffer_copy[i].vad <= settings.audio.vad_threshold:
-            pause += settings.audio.interval_duration
-            if pause > pause_threshold:
-                interval_start = max(0, i + int(pause/settings.audio.interval_duration) - int(margin/settings.audio.interval_duration))
             continue
+        interval_end = min(interval_end, i + int(margin/settings.audio.interval_duration))
+        break
 
-        pause = 0
+    pause = 0
+    for i in range(interval_end-1, max(0, interval_end - int(10/settings.audio.interval_duration)), -1):
+        if buffer_copy[i].vad <= settings.audio.vad_threshold:
+            pause += 1
+            if pause > pause_threshold:
+                interval_start = max(0, i + pause - int(margin/settings.audio.interval_duration))
+                break
+        else:
+            pause = 0
 
     anki_signals.note_update_confirm.emit([], buffer_copy, (interval_start, interval_end), "")
     res = anki_signals.wait_result()
@@ -232,18 +260,53 @@ def search_linesdb(sentence: str):
 
     return selected_line
 
+def find_line_images(line_dict: dict) -> list:
+    images = []
+    for img in screenshot.images_tmp:
+        if img.time < line_dict["line"].time:
+            continue
+        if line_dict["next"] and img.time > line_dict["next"].time:
+            break
+        images.append(img)
+    return images
 
-def auto_update_note(*, update_img: bool = True, update_audio: bool = True, confirmation: bool = False) -> None:
+def note_update_confirmation(images: list, selected_line: dict, next_line_time: datetime | None = None, *, save_path: str | Path, update_audio: bool) -> tuple | None:
+    buffer_copy = None
+    audio_interval = None
+    if update_audio:
+        line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time)
+        buffer_copy = line_audio[0]
+        audio_interval = line_audio[1:]
+
+    line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
+
+    anki_signals.note_update_confirm.emit(images, buffer_copy, audio_interval, line_update)
+    res = anki_signals.wait_result()
+
+    if res is None:
+        return None
+
+    selected_img_idx, audio_interval, line_update = res
+
+    selected_img = images[selected_img_idx] if selected_img_idx is not None else None
+
+    if buffer_copy and audio_interval:
+        with sf.SoundFile(file=save_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
+            for interval in islice(buffer_copy, audio_interval[0], audio_interval[1]):
+                f.write(interval.data)
+
+    return line_audio, selected_img, line_update
+
+def auto_update_note(*, update_img: bool = True, update_audio: bool = True, confirmation: bool = False) -> None:  # noqa: C901
     if last_note is None:
         anki_signals.note_update_info.emit("No note selected")
         return
 
-    next_line_time = None
-    images = []
-    line_audio = (None)
-    line_update = None
+    if AnkiSettings.media_dir is None:
+        anki_signals.note_update_info.emit("Anki media directory not set.\n\nGo to Settings -> Anki to setup AnkiConnect.")
+        return
 
-    selected_img = None
+    line_audio = (None,)
     update_fields = {}
 
     curr_time = datetime.now()
@@ -256,60 +319,24 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
     if selected_line is None:
         return
 
-    if selected_line["next"]:
-        next_line_time = selected_line["next"].time
+    next_line_time = selected_line["next"].time if selected_line["next"] else None
 
-    if update_img:
-        for img in screenshot.images_tmp:
-            if img.time < selected_line["line"].time:
-                continue
-            if selected_line["next"] and img.time > selected_line["next"].time:
-                break
-            images.append(img)
-
-    if AnkiSettings.media_dir is None:
-        media_dir = get_media_dir()
-        if media_dir is None:
-            return
-        settings.update_option("anki", "media_dir", media_dir)
+    images = find_line_images(selected_line) if update_img else []
 
     img_path = Path(AnkiSettings.media_dir) / f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"
     audio_path = Path(AnkiSettings.media_dir) / f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3"
 
     if confirmation:
-        buffer_copy = None
-        audio_interval = None
-        if update_audio:
-            line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time)
-            buffer_copy = line_audio[0]
-            audio_interval = line_audio[1:]
-
-        line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
-
-        anki_signals.note_update_confirm.emit(images, buffer_copy, audio_interval, line_update)
-        res = anki_signals.wait_result()
-
+        res = note_update_confirmation(images, selected_line, next_line_time=next_line_time, save_path=audio_path, update_audio=update_audio)
         if res is None:
             return
-
-        selected_img_idx, audio_interval, line_update = res
-
+        line_audio, selected_img, line_update = res
         update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
-
-        if selected_img_idx is not None:
-            selected_img = images[selected_img_idx]
-
-        if buffer_copy and audio_interval:
-            with sf.SoundFile(file=audio_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
-                for interval in islice(buffer_copy, audio_interval[0], audio_interval[1]):
-                    f.write(interval.data)
-
     else:
         if update_audio:
             line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time, save_path=audio_path)
 
-        if images:
-            selected_img = images[0]
+        selected_img = images[0] if images else None
 
         if selected_line["line"].text != last_note_sentence_clean:
             line_update = selected_line["line"].text.replace(last_note_sentence_clean, last_note_info["Sentence"])
@@ -341,6 +368,12 @@ def monitor_last_note(widget_info_update=None):
         try:
             last_note_tmp = get_last_note()
 
+            if last_note_tmp is None and (last_note is not None or first_fail):
+                first_fail = False
+                logger.info("No note found")
+                last_note = None
+                anki_signals.last_note_changed.emit("No note found", "")
+
             if last_note_tmp == last_note:
                 continue
 
@@ -360,28 +393,30 @@ def monitor_last_note(widget_info_update=None):
                     auto_update_note(confirmation=sessionsdb.current_session["preview_note"])
 
         except Exception as e:
-            if "No note found" in str(e):
-                if last_note is not None or first_fail:
-                    first_fail = False
-                    # print("No note found")
-                    last_note = None
-                    anki_signals.last_note_changed.emit("No note found", "")
-            else:
-                traceback.print_exc()
+            logger.warning("monitor_last_note: %s", e)
         finally:
             sleep(0.2)
 
 
 def check_anki_status():
+    logger.info("Start monitotoring Anki connection")
     while True:
         try:
             requestJson = json.dumps(request("version")).encode("utf-8")
             urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{AnkiSettings.port}", requestJson))
+        except (urllib.error.URLError, ConnectionResetError) as e:  # noqa: PERF203
+            if curr_status != AnkiStatus.STARTED:
+                msg = f"AnkiConnect: {e}"
+                logger.error(msg)  # noqa: TRY400
+                anki_signals.update_status(AnkiStatus.STARTED)
         except Exception:
-            # TODO: Specify errors
-            anki_signals.anki_status.emit(1)
+            logger.exception("AnkiConnect: ")
+            anki_signals.update_status(AnkiStatus.STOPPED)
+            break
         else:
-            anki_signals.anki_status.emit(2)
+            if curr_status != AnkiStatus.CONNECTED:
+                logger.info("AnkiConnect: connected")
+                anki_signals.update_status(AnkiStatus.CONNECTED)
         finally:
             sleep(1)
 
