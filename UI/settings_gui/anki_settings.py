@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from time import sleep
-from threading import Thread
+from threading import Thread, Event
 
 from util.anki import (
     get_all_note_types_fields,
@@ -33,6 +33,10 @@ from util.anki import (
 )
 from util.database import settings
 from .custom_widgets import SettingItem, SettingsPage
+
+import logging
+
+logger = logging.getLogger("app_logger")
 
 
 class NoteTypesForm(QWidget):
@@ -184,6 +188,7 @@ class AnkiPage(SettingsPage):
         self.anki_port_spin.setMaximum(65535)
         self.anki_port_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.anki_port_spin.setValue(settings.anki.port)
+        self.anki_port_spin.valueChanged.connect(self.update_anki_port)
 
         AnkiPage.settings_widgets["port"] = self.anki_port_spin
         self.layout_rows.append((self.anki_port_item, self.anki_port_spin))
@@ -278,24 +283,6 @@ class AnkiPage(SettingsPage):
         # ------ Building Layout ---------------------------------------------------------------
         # --------------------------------------------------------------------------------------
 
-        # self.main_layout.addWidget(self.anki_port_item, 0, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addWidget(self.anki_port_spin, 0, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        # self.main_layout.addWidget(self.media_item, 1, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addLayout(self.media_edit_layout, 1, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        # self.main_layout.addWidget(self.deck_item, 2, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addWidget(self.deck_line_edit, 2, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        # self.main_layout.addWidget(self.auto_update_item, 3, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addWidget(self.auto_update_toggle, 3, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        # self.main_layout.addWidget(self.open_in_gui_item, 4, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addWidget(self.open_in_gui_toggle, 4, 1, alignment=Qt.AlignRight | Qt.AlignTop)
-
-        # self.main_layout.addWidget(self.note_types_item, 5, 0, alignment=Qt.AlignTop)
-        # self.main_layout.addWidget(self.note_types_form, 5, 1, alignment=Qt.AlignTop)
-
         for row, widgets in enumerate(self.layout_rows):
             self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
             self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
@@ -310,6 +297,7 @@ class AnkiPage(SettingsPage):
         self.note_types_form.note_added.connect(self.add_note_fields_row)
         self.note_types_form.note_removed.connect(self.remove_note_field_row)
 
+        self.thread_stop = Event()
         self.anki_thread = Thread(target=self.get_anki_info, daemon=True)
         self.anki_thread.start()
 
@@ -329,9 +317,11 @@ class AnkiPage(SettingsPage):
         self.note_types_fields[note]["widget"].deleteLater()
         self.note_types_fields.pop(note)
 
-    def get_anki_info(self):
+    def get_anki_info(self):  # noqa: C901
         while True:
             try:
+                if self.thread_stop.is_set():
+                    break
 
                 if settings.anki.media_dir is None:
                     media_dir = get_media_dir()
@@ -345,10 +335,10 @@ class AnkiPage(SettingsPage):
                 if fields is None:
                     continue
 
-                old_idx = self.new_note_combo.currentIndex()
-                self.new_note_combo.clear()
-                self.new_note_combo.addItems(note_types)
-                self.new_note_combo.setCurrentIndex(old_idx)
+                old_idx = self.note_types_form.new_note_combo.currentIndex()
+                self.note_types_form.new_note_combo.clear()
+                self.note_types_form.new_note_combo.addItems(note_types)
+                self.note_types_form.new_note_combo.setCurrentIndex(old_idx)
 
                 settings.anki.note_types_fields = fields
 
@@ -364,21 +354,47 @@ class AnkiPage(SettingsPage):
                         if note_type in settings.anki.note_types:
                             text = getattr(settings.anki, field.lower().replace(" ", "_"))[note_type]
                             tmp_combo.setCurrentText(text)
-
                 break
             except Exception as e:
-                # TODO: Log exception
-                ...
+                # TODO: specify exceptions
+                logger.warning("AnkiSettings: %s", e)
             finally:
                 sleep(0.3)
 
-    def update_dir(self, file):
+    def update_anki_port(self, port: int) -> None:
+        settings.update_option("anki", "port", port)
+
+    def update_dir(self, file) -> None:
         if not file:
             return
         self.media_line_edit.setText(file)
         self.media_select.setDirectory(file)
 
-    def update_settings(self):
+    def update_note_types_fields(self) -> list:
+        tmp_fields = {field.lower().replace(" ", "_"): {} for field in self.card_fields}
+        tmp_note_types = list(self.note_types.keys())
+        settings.update_option("anki", "note_types", tmp_note_types)
+
+        missing_fields = []
+
+        for note in self.note_types_fields:
+            for field, wdg in self.note_types_fields[note].items():
+                if field == "widget":
+                    continue
+                tmp_text = wdg.currentText()
+                if not tmp_text:
+                    missing_fields.append(field)
+                    continue
+                tmp_fields[field.lower().replace(" ", "_")][note] = tmp_text
+
+        if missing_fields:
+            return missing_fields
+
+        for field, value in tmp_fields.items():
+            settings.update_option("anki", field, value)
+
+
+    def update_settings(self) -> list:
         for option, wdg in AnkiPage.settings_widgets.items():
             if isinstance(wdg, (QSpinBox, QDoubleSpinBox)):
                 value = wdg.value()
@@ -394,26 +410,5 @@ class AnkiPage(SettingsPage):
                     continue
             settings.update_option("anki", option, value)
 
-        tmp_fields = {field.lower().replace(" ", "_"): {} for field in self.card_fields}
-        tmp_note_types = list(self.note_types.keys())
-        settings.update_option("anki", "note_types", tmp_note_types)
-
-        missing_fields = []
-
-        for note in self.note_types_fields:
-            for field, wdg in self.note_types_fields[note].items():
-                if field == "widget":
-                    continue
-                tmp_text = wdg.currentText()
-                if not tmp_text:
-                    # TODO:inform user field has to be selected, raise custom exception
-                    missing_fields.append(field)
-                    continue
-                tmp_fields[field.lower().replace(" ", "_")][note] = tmp_text
-
-        if missing_fields:
-            return missing_fields
-
-        for field, value in tmp_fields.items():
-            settings.update_option("anki", field, value)
-
+        missing_fields = self.update_note_types_fields()
+        return missing_fields
