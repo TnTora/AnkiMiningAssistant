@@ -160,6 +160,9 @@ class SettingsWindow(QWidget):
 
         self.setLayout(self.window_layout)
 
+    def closeEvent(self, event):
+        self.anki_page.thread_stop.set()
+
     def page_update_slot(self, widget):
         @Slot(bool)
         def update_page(checked):
