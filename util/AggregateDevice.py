@@ -123,7 +123,7 @@ kAudioObjectPropertyScopeGlobal = int.from_bytes(b"glob", byteorder="big")
 kAudioObjectPropertyElementMaster = 0
 
 
-def createAggregateDevice():
+def createAggregateDevice(name: str = "SystemAudioRecorder", *, private: bool = True) -> tuple:
     # Should avoid leaking memory when using objc
     NSAutoreleasePool = _objc.objc_getClass(b"NSAutoreleasePool")
     pool = _objc.objc_msgSend(NSAutoreleasePool, _objc.sel_registerName(b"alloc"))
@@ -145,7 +145,7 @@ def createAggregateDevice():
     tap_desc = _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"initStereoGlobalTapButExcludeProcesses:"), processes)
     _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setMuteBehavior:"), _ffi.cast("int", 0))
     _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setName:"), str_to_CFString("GlobalTap"))
-    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setPrivate:"), _ffi.cast("bool", True))
+    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setPrivate:"), _ffi.cast("bool", private))
     _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setExclusive:"), _ffi.cast("bool", True))
 
     tap_id = _ffi.new("UInt32*")
@@ -162,11 +162,11 @@ def createAggregateDevice():
     taps = _objc.objc_msgSend(taps, _objc.sel_registerName(b"initWithObjects:"), tap_dict, _ffi.NULL)
 
     aggregate_device_dict = _cf.CFDictionaryCreateMutable(_ffi.NULL, 0, _ffi.NULL, _ffi.NULL)
-    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceNameKey, str_to_CFString("SystemAudioRecorder"))
-    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceUIDKey, str_to_CFString("com.user.SystemAudioRecorder"))
+    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceNameKey, str_to_CFString(name))
+    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceUIDKey, str_to_CFString(f"com.user.{name}"))
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceTapListKey, taps)
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceTapAutoStartKey, NO)
-    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceIsPrivateKey, YES)
+    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceIsPrivateKey, YES if private else NO)
 
     aggr_id = _ffi.new("UInt32*")
     stat = _ca.AudioHardwareCreateAggregateDevice(aggregate_device_dict, aggr_id)
