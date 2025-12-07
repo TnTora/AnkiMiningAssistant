@@ -51,7 +51,7 @@ class AudioBar(QWidget):
 
         self.h = h
         self.w = 0
-        self.audio_data = audio_data or audio.buffer
+        self.audio_data = audio_data or audio.buffers["primary"]
         self.total_intervals = len(self.audio_data)
         self.setFixedHeight(h)
         self.intervals_rms_vad = []
@@ -80,7 +80,7 @@ class AudioBar(QWidget):
         """
         self.intervals_rms_vad = []
         self.peak = 0
-        tmp_interval = np.empty((0, audio.buffer.channels))
+        tmp_interval = np.empty((0, audio.buffers["primary"].channels))
         tmp_vad = False
         i = 0
         for interval in self.audio_data:
@@ -96,7 +96,7 @@ class AudioBar(QWidget):
 
             self.peak = max(self.peak, rms)
 
-            tmp_interval = np.empty((0, audio.buffer.channels))
+            tmp_interval = np.empty((0, audio.buffers["primary"].channels))
             tmp_vad = False
         if len(tmp_interval) > 0:
             rms = np.max(calculate_rms(tmp_interval))

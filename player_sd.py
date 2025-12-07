@@ -41,7 +41,7 @@ class Player_Worker(Thread):
     def __init__(self, player_state: PlayerState, audio_data: audio.AudioBuffer | None = None):
         super().__init__()
         self.player_state = player_state
-        self.buffer = audio.buffer
+        self.buffer = audio.buffers["primary"]
         self.frozen_deque = audio_data
         self.stop_event = Event()
         self.block_iter = None
@@ -82,7 +82,7 @@ class Player_Worker(Thread):
 
         stream = sd.OutputStream(
             samplerate=settings.audio.samplerate, blocksize=0,
-            device=sd.default.device, channels=audio.buffer.channels,
+            device=sd.default.device, channels=self.buffer.channels,
             callback=self.callback, finished_callback=self.stop_event.set)
         with stream:
             self.stop_event.wait()

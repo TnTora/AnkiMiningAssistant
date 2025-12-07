@@ -23,11 +23,11 @@ import logging
 
 logger = logging.getLogger("app_logger")
 
-previous_notes = set()
-last_note = None
-last_note_update_time = None
-last_note_info = None
-last_note_sentence_clean = None
+previous_notes: set[int] = set()
+last_note: int | None = None
+last_note_update_time: datetime | None = None
+last_note_info: dict | None = None
+last_note_sentence_clean: str = ""
 
 start_session = datetime.now()
 
@@ -212,11 +212,11 @@ def manual_update_note(*, update_img: bool = True, update_audio: bool = True) ->
         update_fields[AnkiSettings.picture[last_note_info["noteType"]]] = f'<img alt="snapshot" src="{f"{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.webp"}">'
 
     if update_audio:
-        buffer_copy = audio.buffer.copy_slice()
+        buffer_copy = audio.buffers["primary"].copy_slice()
         audio_interval = estimate_last_interval(buffer_copy)
 
         if audio_interval:
-            with sf.SoundFile(file=audio_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
+            with sf.SoundFile(file=audio_path, mode="w", channels=audio.buffers["primary"].channels, samplerate=settings.audio.samplerate) as f:
                 for interval in islice(buffer_copy, audio_interval[0], audio_interval[1]):
                     f.write(interval.data)
             update_fields[AnkiSettings.sentence_audio[last_note_info["noteType"]]] = f"[sound:{curr_time.strftime('%Y-%m-%d_%H_%M_%S')}.mp3]"
@@ -274,7 +274,7 @@ def note_update_confirmation(images: list, selected_line: dict, next_line_time: 
     buffer_copy = None
     audio_interval = None
     if update_audio:
-        line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time)
+        line_audio = audio.buffers["primary"].extract_line_audio(selected_line["line"].time, next_line_time)
         buffer_copy = line_audio[0]
         audio_interval = line_audio[1:]
 
@@ -291,7 +291,7 @@ def note_update_confirmation(images: list, selected_line: dict, next_line_time: 
     selected_img = images[selected_img_idx] if selected_img_idx is not None else None
 
     if buffer_copy and audio_interval:
-        with sf.SoundFile(file=save_path, mode="w", channels=audio.buffer.channels, samplerate=settings.audio.samplerate) as f:
+        with sf.SoundFile(file=save_path, mode="w", channels=audio.buffers["primary"].channels, samplerate=settings.audio.samplerate) as f:
             for interval in islice(buffer_copy, audio_interval[0], audio_interval[1]):
                 f.write(interval.data)
 
@@ -334,7 +334,7 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
         update_fields[AnkiSettings.sentence[last_note_info["noteType"]]] = line_update
     else:
         if update_audio:
-            line_audio = audio.buffer.extract_line_audio(selected_line["line"].time, next_line_time, save_path=audio_path)
+            line_audio = audio.buffers["primary"].extract_line_audio(selected_line["line"].time, next_line_time, save_path=audio_path)
 
         selected_img = images[0] if images else None
 

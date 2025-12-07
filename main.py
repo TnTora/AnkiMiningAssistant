@@ -95,16 +95,16 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 
-def _startMonitoring() -> None:
+def _startMonitoring(audio_input) -> None:
 
-    audio.record_audio_buffer = audio.recordAudioBuffer()
+    audio.record_audio_buffer = audio.recordAudioBuffer(audio_input)
     audio.record_audio_buffer.start()
 
     screenshot.screenshot_manager = screenshot.ScreenshotManager(interval=settings.image.capture_interval)
     screenshot.screenshot_manager.start()
 
 
-def _stopMonitoring():
+def _stopMonitoring() -> None:
 
     audio.record_audio_buffer.stop_recording()
     audio.record_audio_buffer.join()
@@ -117,10 +117,10 @@ def _stopMonitoring():
 
 if is_wayland:
     from util.platform_util import start_screencapture, stop_screencapture, set_sources
-    def startMonitoring() -> None:
+    def startMonitoring(audio_input) -> None:
         src_type = "MONITOR" if sessionsdb.current_session["use_screen_region"] else "WINDOW"
         start_screencapture(src_type=src_type)
-        _startMonitoring()
+        _startMonitoring(audio_input)
 
     def stopMonitoring():
         _stopMonitoring()
@@ -231,6 +231,7 @@ class MainWindow(QMainWindow):
         self.windows = None
         self.curr_win = None
         self.audio_inputs, preferred_idx = audio.get_audio_inputs()
+        self.audio_input = None
         self.player_state = PlayerState()
 
         self.av_monitoring = False
@@ -782,6 +783,7 @@ class MainWindow(QMainWindow):
 
     def set_session(self, idx) -> None:
         if self.av_monitoring:
+            logger.info("Session change detected, pausing monitoring")
             self.toggleMonitoring()
 
         settings.general.last_session = list(sessionsdb.sessions_dict.keys())[idx]
@@ -882,7 +884,7 @@ class MainWindow(QMainWindow):
             # audio.audio_input = None
             return
 
-        prev_channels = audio.buffer.channels if audio.buffer else audio.AudioBuffer.get_db_channels()
+        prev_channels = audio.buffers["primary"].channels if "primary" in audio.buffers else audio.AudioBuffer.get_db_channels()
 
         if prev_channels and self.audio_inputs[index].channels != prev_channels:
             alert = AlertDialog(
@@ -893,21 +895,23 @@ class MainWindow(QMainWindow):
             )
             if not alert.exec():
                 try:
-                    old_idx = self.audio_inputs.index(audio.audio_input)
+                    old_idx = self.audio_inputs.index(self.audio_input)
                     self.audio_input_select.setCurrentIndex(old_idx)
                 except ValueError:
                     self.audio_input_select.setCurrentText("**No Input Selected**")
                 return
             audiodb.clear()
-            if audio.buffer:
-                audio.buffer.deque.clear()
+            if "primary" in audio.buffers:
+                audio.buffers["primary"].deque.clear()
 
-        audio.audio_input = self.audio_inputs[index]
+        self.audio_input = self.audio_inputs[index]
         settings.update_option("audio", "audio_input", self.audio_inputs[index].name)
-        if audio.buffer is None:
-            audio.buffer = audio.AudioBuffer(channels=audio.audio_input.channels, is_primary=True)
-            audio.secondary_buffer = audio.AudioBuffer(channels=audio.audio_input.channels, max_time=0.5)
-            self.player_state.total_intervals = len(audio.buffer)
+        if "primary" not in audio.buffers:
+            # audio.buffer = audio.AudioBuffer(channels=audio.audio_input.channels, is_primary=True)
+            # audio.secondary_buffer = audio.AudioBuffer(channels=audio.audio_input.channels, max_time=0.5)
+            audio.buffers["primary"] = audio.AudioBuffer(channels=self.audio_input.channels, is_primary=True)
+            audio.buffers["secondary"] = audio.AudioBuffer(channels=self.audio_input.channels, max_time=0.5)
+            self.player_state.total_intervals = len(audio.buffers["primary"])
 
         self.monitoring_button.setEnabled(True)
 
@@ -942,7 +946,7 @@ class MainWindow(QMainWindow):
             self.audio_input_select.setDisabled(True)
             self.screen_region_check.setDisabled(True)
             self.screen_region_button.setDisabled(True)
-            startMonitoring()
+            startMonitoring(audio_input=self.audio_input)
         else:
             stopMonitoring()
             self.monitoring_button.setText("Start Monitoring")
@@ -979,12 +983,12 @@ class MainWindow(QMainWindow):
         self.confirm_dialog = None
 
     def playAudio(self) -> None:
-        if audio.buffer is None:
+        if "primary" not in audio.buffers:
             return
         if self.player_state.playing:
             self.player.stop()
         else:
-            self.player_state.total_intervals = len(audio.buffer)
+            self.player_state.total_intervals = len(audio.buffers["primary"])
             self.player = Player_Worker(self.player_state)
             self.player.start()
 
@@ -1031,8 +1035,9 @@ def update_all_dbs() -> None:
     logger.info("Saving images...")
     imagedb.store_imgs(screenshot.images_tmp)
     logger.info("Saving audio...")
-    audiodb.store_buffer_intervals(audio.buffer)
-    audiodb.store_inactive_intervals(audio.buffer)
+    if "primary" in audio.buffers:
+        audiodb.store_buffer_intervals(audio.buffers["primary"])
+        audiodb.store_inactive_intervals(audio.buffers["primary"])
     logger.info("Saving lines")
     linedb.store_lines(util.sockets.text_stored)
     logger.info("Saving sessions")
@@ -1043,7 +1048,7 @@ def main() -> None:
     aggr_id, tap_id = None, None
 
     if platform == "darwin":
-        aggr_id, tap_id = createAggregateDevice()
+        aggr_id, tap_id = createAggregateDevice(private=True)
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")

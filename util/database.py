@@ -9,19 +9,19 @@ import json
 
 class GeneralSettings:
 
-    last_session = "Manual"
-    storage_time_limit = timedelta(minutes=5, seconds=0)
-    ws_port = 6678
-    listen_urls = ["localhost:6677", "localhost:2333"]
+    last_session: str = "Manual"
+    storage_time_limit: timedelta = timedelta(minutes=5, seconds=0)
+    ws_port: int = 6678
+    listen_urls: list[str] = ["localhost:6677", "localhost:2333"]
 
 
 class AnkiSettings:
 
-    port = 8765
+    port: int = 8765
     media_dir = None
-    auto_update_last_note = True
-    open_note_in_gui = True
-    deck = "*"
+    auto_update_last_note: bool = True
+    open_note_in_gui: bool = True
+    deck: str = "*"
     note_types = []
     expression = {}
     sentence = {}
@@ -32,24 +32,24 @@ class AnkiSettings:
 
 class AudioSettings:
 
-    samplerate = 44100
-    interval_duration = 512/16000
-    inactivity_pause_timer = 10
-    audio_input = None
+    samplerate: int = 44100
+    interval_duration: float = 512/16000
+    inactivity_pause_timer: int = 10
+    audio_input: str | None = None
     resume_on_detected_voice = False
     continuous_recording = False
-    vad_threshold = 0.5
-    pause_threshold = 10
-    padding = 320
+    vad_threshold: float = 0.5
+    pause_threshold: int = 10
+    padding: int = 320
 
 
 class ImageSettings:
 
-    format = "WEBP"
-    webp_quality = 80
-    max_resolution = "1080p"
-    capture_interval = 1
-    pixel_ratio = None
+    format: str = "WEBP"
+    webp_quality: int = 80
+    max_resolution: str = "1080p"
+    capture_interval: float = 1
+    pixel_ratio: float | None = None
     offsets = {
         "x": 0,
         "y": 0,
@@ -341,7 +341,7 @@ class SessionDB:
     def __init__(self, path) -> None:
         self.path = path
         self.sessions_dict = {}
-        self.current_session = None
+        self.current_session = {}
         self.create_table()
         self.load_sessions()
         if "Manual" not in self.sessions_dict:

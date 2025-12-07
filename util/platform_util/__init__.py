@@ -13,17 +13,17 @@ if platform == "linux":
     )
 
     if is_wayland:
-        from util.wayland import *
+        from .wayland import *
     else:
-        from util.x11 import *
+        from .x11 import *
 
 elif platform == "darwin":
 
-    from util.mac import *
+    from .mac import *
 
 elif platform == "win32":
 
-    from util.win import *
+    from .win import *
 
 else:
     msg = f"AnkiMiningAssistant does not support {platform}"
