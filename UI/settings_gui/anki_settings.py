@@ -30,6 +30,7 @@ from util.anki import (
     get_all_note_types_fields,
     get_note_types,
     get_media_dir,
+    AnkiError,
 )
 from util.database import settings
 from .custom_widgets import SettingItem, SettingsPage
@@ -47,14 +48,14 @@ class NoteTypesForm(QWidget):
     def __init__(self, note_types: dict) -> None:
         super().__init__()
 
-        self.note_types_dict = note_types
+        self.note_types_dict: dict[str, list[QWidget]] = note_types
 
         self.notes_form = QFormLayout()
         self.notes_form.setContentsMargins(0, 0, 9, 0)
         self.notes_form.setVerticalSpacing(10)
         self.notes_form.setHorizontalSpacing(5)
-        self.notes_form.setLabelAlignment(Qt.AlignRight)
-        self.notes_form.setFormAlignment(Qt.AlignRight)
+        self.notes_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.notes_form.setFormAlignment(Qt.AlignmentFlag.AlignRight)
 
         for note in settings.anki.note_types:
             tmp_label = QLabel(f"{note} ")
@@ -86,7 +87,7 @@ class NoteTypesForm(QWidget):
 
         self.setLayout(self.notes_form)
 
-    def remove_note_slot_gen(self, note):
+    def remove_note_slot_gen(self, note: str) -> None:
         @Slot()
         def remove_note():
             row = self.note_types_dict.pop(note)
@@ -95,7 +96,7 @@ class NoteTypesForm(QWidget):
             self.note_removed.emit(note)
         return remove_note
 
-    def add_note_type(self):
+    def add_note_type(self) -> None:
         new_note = self.new_note_combo.currentText()
         if not new_note:
             return
@@ -124,8 +125,8 @@ class NoteTypeFields(QWidget):
         self.form_widget = QWidget()
 
         self.form_layout = QFormLayout()
-        self.form_layout.setLabelAlignment(Qt.AlignLeft)
-        self.form_layout.setFormAlignment(Qt.AlignRight)
+        self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.form_layout.setFormAlignment(Qt.AlignmentFlag.AlignRight)
         self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.form_layout.setContentsMargins(10, 0, 0, 0)
         self.form_layout.setHorizontalSpacing(70)
@@ -158,7 +159,7 @@ class NoteTypeFields(QWidget):
         self.note_label = QLabel(note_type)
         self.note_label.setMinimumWidth(80)
         self.note_label.setWordWrap(True)
-        self.note_label.setAlignment(Qt.AlignCenter)
+        self.note_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.h_box.addWidget(self.note_label)
         self.h_box.addWidget(self.form_widget)
         self.h_box.setStretch(1, 1)
@@ -168,9 +169,9 @@ class NoteTypeFields(QWidget):
 
 class AnkiPage(SettingsPage):
 
-    settings_widgets = {}
+    settings_widgets: dict[str, QWidget] = {}
 
-    def __init__(self):  # noqa: PLR0915
+    def __init__(self) -> None:  # noqa: PLR0915
         super().__init__()
         self.layout_rows = []
 
@@ -284,8 +285,8 @@ class AnkiPage(SettingsPage):
         # --------------------------------------------------------------------------------------
 
         for row, widgets in enumerate(self.layout_rows):
-            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
-            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignmentFlag.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
         for note in self.note_types:
             self.add_note_fields_row(note)
@@ -301,23 +302,23 @@ class AnkiPage(SettingsPage):
         self.anki_thread = Thread(target=self.get_anki_info, daemon=True)
         self.anki_thread.start()
 
-    def add_note_fields_row(self, note):
+    def add_note_fields_row(self, note: str) -> None:
         self.note_types_fields[note] = {}
         tmp_fields_widget = NoteTypeFields(note, self.card_fields, self.note_types_fields)
         self.note_types_fields[note]["widget"] = tmp_fields_widget
         new_row = self.main_layout.rowCount()
-        self.main_layout.addWidget(tmp_fields_widget, new_row, 0, 1, 2, alignment=Qt.AlignTop)
+        self.main_layout.addWidget(tmp_fields_widget, new_row, 0, 1, 2, alignment=Qt.AlignmentFlag.AlignTop)
 
         # Add stretch to just the last row to keep everything top aligned
         self.main_layout.setRowStretch(new_row - 1, 0)
         self.main_layout.setRowStretch(new_row, 1)
 
-    def remove_note_field_row(self, note):
+    def remove_note_field_row(self, note: str) -> None:
         self.main_layout.removeWidget(self.note_types_fields[note]["widget"])
         self.note_types_fields[note]["widget"].deleteLater()
         self.note_types_fields.pop(note)
 
-    def get_anki_info(self):  # noqa: C901
+    def get_anki_info(self) -> None:  # noqa: C901
         while True:
             try:
                 if self.thread_stop.is_set():
@@ -355,20 +356,23 @@ class AnkiPage(SettingsPage):
                             text = getattr(settings.anki, field.lower().replace(" ", "_"))[note_type]
                             tmp_combo.setCurrentText(text)
                 break
+            except AnkiError:
+                pass
             except Exception as e:
                 # TODO: specify exceptions
-                logger.warning("AnkiSettings: %s", e)
+                # logger.warning("AnkiSettings: %s", e)
+                logger.exception("AnkiSettings: ")
             finally:
                 sleep(0.3)
 
     def update_anki_port(self, port: int) -> None:
         settings.update_option("anki", "port", port)
 
-    def update_dir(self, file) -> None:
-        if not file:
+    def update_dir(self, path) -> None:
+        if not path:
             return
-        self.media_line_edit.setText(file)
-        self.media_select.setDirectory(file)
+        self.media_line_edit.setText(path)
+        self.media_select.setDirectory(path)
 
     def update_note_types_fields(self) -> list:
         tmp_fields = {field.lower().replace(" ", "_"): {} for field in self.card_fields}
@@ -392,6 +396,8 @@ class AnkiPage(SettingsPage):
 
         for field, value in tmp_fields.items():
             settings.update_option("anki", field, value)
+
+        return missing_fields
 
 
     def update_settings(self) -> list:
