@@ -1,9 +1,12 @@
 import sounddevice as sd
 import threading
-import numpy as np
 from queue import Queue
 from util.database import AudioSettings
 from util.custom_typings import AudioInputDevice
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class SD_Device:
@@ -38,7 +41,7 @@ class recordingThreadSD(threading.Thread):
     def stop_recording(self) -> None:
         self.stop_record_event.set()
 
-    def callback(self, indata: np.ndarray, frames: int, time, status: sd.CallbackFlags) -> None:
+    def callback(self, indata: "np.ndarray", frames: int, time, status: sd.CallbackFlags) -> None:
         if self.stop_record_event.is_set():
             raise sd.CallbackAbort
 

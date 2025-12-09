@@ -132,8 +132,8 @@ class AudioPage(SettingsPage):
         # --------------------------------------------------------------------------------------
 
         for row, widgets in enumerate(self.layout_rows):
-            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
-            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignmentFlag.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
         self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
 

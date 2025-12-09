@@ -1,6 +1,6 @@
 from math import ceil, floor
 import numpy as np
-from collections.abc import Iterable
+from collections.abc import Sequence
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
@@ -34,9 +34,9 @@ class AudioBar(QWidget):
     def __init__(
         self,
         h: int,
-        audio_data: Iterable[audio.AudioInterval] | None = None,
-        start_interval: int | None = None,
-        end_interval: int | None = None,
+        audio_data: Sequence[audio.AudioInterval],
+        start_interval: int,
+        end_interval: int,
     ) -> None:
 
         super().__init__()
@@ -49,20 +49,20 @@ class AudioBar(QWidget):
         self.sub_unit_px = round(self.sub_unit * one_sec_interval_px)
         self.main_unit_px = round(self.main_unit/self.sub_unit) * self.sub_unit_px
 
-        self.h = h
-        self.w = 0
-        self.audio_data = audio_data or audio.buffers["primary"]
+        # self.h: int = h
+        # self.w: int = 0
+        self.audio_data = audio_data
         self.total_intervals = len(self.audio_data)
         self.setFixedHeight(h)
         self.intervals_rms_vad = []
         self.peak = 0
         self.calculate_intervals()
 
-        self.left_handle = start_interval
-        self.right_handle = end_interval
+        self.left_handle: int = start_interval
+        self.right_handle: int = end_interval
 
-        self.left_handle_x = 2+(self.left_handle)*5/self.zoom
-        self.right_handle_x = 5+(self.right_handle)*5/self.zoom
+        self.left_handle_x: int | float = 2+(self.left_handle)*5/self.zoom
+        self.right_handle_x: int | float = 5+(self.right_handle)*5/self.zoom
         self.handle_pressed = None
 
         self.playable = False
@@ -277,14 +277,14 @@ class AudioBar(QWidget):
 
         brush = QBrush()
         brush.setColor(no_voice_color)
-        brush.setStyle(Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
 
         pen_voice = QPen()
         pen_voice.setColor(voice_color)
 
         brush_voice = QBrush()
         brush_voice.setColor(voice_color)
-        brush_voice.setStyle(Qt.SolidPattern)
+        brush_voice.setStyle(Qt.BrushStyle.SolidPattern)
 
         bar_x_pos = 2 + start_idx*5
 
@@ -309,7 +309,7 @@ class AudioBar(QWidget):
 
         pen = QPen()
         brush = QBrush()
-        brush.setStyle(Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
 
         pen.setColor(selection_color_pen)
         painter.setPen(pen)
@@ -319,7 +319,7 @@ class AudioBar(QWidget):
         selection_w = (3 + (self.right_handle - self.left_handle)*5)/self.zoom
         self.left_handle_x = 2+(self.left_handle)*5/self.zoom
         self.right_handle_x = self.left_handle_x + selection_w
-        painter.drawRect(self.left_handle_x, 0, selection_w, painter.device().height())
+        painter.drawRect(QRectF(self.left_handle_x, 0, selection_w, painter.device().height()))
 
         handles_font = QFont()
         handles_font.setPixelSize(10)
@@ -334,7 +334,7 @@ class AudioBar(QWidget):
         left_msec = round((left_to_sec % 1)*1000)
         left_min, left_sec = divmod(left_to_sec, 60)
         left_time_str = f"-{int(left_min):02d}:{int(left_sec):02d}.{left_msec:03d} "
-        left_txt_rect = fm.boundingRect(left_time_str).translated(self.left_handle_x, 0)
+        left_txt_rect = fm.boundingRect(left_time_str).translated(int(self.left_handle_x), 0)
 
         # Move left timestamp if too close to right handle
         if selection_w < 2*(left_txt_rect.width()+5):
@@ -350,7 +350,7 @@ class AudioBar(QWidget):
         right_msec = round((right_to_sec % 1)*1000)
         right_min, right_sec = divmod(right_to_sec, 60)
         right_time_str = f"-{int(right_min):02d}:{int(right_sec):02d}.{right_msec:03d} "
-        right_txt_rect = fm.boundingRect(right_time_str).translated(self.right_handle_x, 0)
+        right_txt_rect = fm.boundingRect(right_time_str).translated(int(self.right_handle_x), 0)
         right_txt_rect.translate(-right_txt_rect.width()-3, painter.device().height()-1)
         painter.drawText(right_txt_rect, right_time_str)
 
@@ -387,7 +387,7 @@ class AudioBar(QWidget):
         painter.setPen(pen)
         brush = QBrush()
         brush.setColor(background_color)
-        brush.setStyle(Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
         painter.setBrush(brush)
 
         # Draw Background
@@ -407,7 +407,7 @@ class AudioBar(QWidget):
             pen.setWidth(1)
             painter.setPen(pen)
             self.player_cursor_x = 3+(self.player_cursor)*5/self.zoom
-            painter.drawLine(self.player_cursor_x, 0, self.player_cursor_x, painter.device().height())
+            painter.drawLine(QPointF(self.player_cursor_x, 0), QPointF(self.player_cursor_x, painter.device().height()))
 
         # Draw timeline
         start_px = floor((event.rect().x()-2)/self.sub_unit_px) * self.sub_unit_px + 2 - 5*self.sub_unit_px

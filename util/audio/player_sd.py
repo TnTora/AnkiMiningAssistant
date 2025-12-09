@@ -1,44 +1,22 @@
 import sounddevice as sd
 from threading import Thread, Event
 
-from PySide6.QtCore import (
-    QObject,
-    Signal,
-)
-
-from util import audio
+from . import audio
+from .shared_components import PlayerSignals, PlayerState
 from util.database import settings
 
-
-class PlayerSignals(QObject):
-
-    cursor_update = Signal(int)
-    playing_state_changed = Signal(bool)
-
-
-class PlayerState:
-
-    def __init__(self) -> None:
-        self.total_intervals = 0
-        self.cursor = 0
-        self.playing = False
-        self.signals = PlayerSignals()
-
-    def setCursor(self, cursor: int) -> None:
-        self.cursor = cursor
-        self.signals.cursor_update.emit(self.cursor)
-
-    def advanceCursor(self) -> None:
-        self.cursor += 1
-        self.signals.cursor_update.emit(self.cursor)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import numpy as np
+    from collections.abc import Sequence
 
 
-class Player_Worker(Thread):
+class PlayerWorkerSD(Thread):
     """Worker thread."""
 
     blocksize = 83
 
-    def __init__(self, player_state: PlayerState, audio_data: audio.AudioBuffer | None = None):
+    def __init__(self, player_state: PlayerState, audio_data: "Sequence[audio.AudioInterval] | None" = None) -> None:
         super().__init__()
         self.player_state = player_state
         self.buffer = audio.buffers["primary"]
@@ -47,16 +25,16 @@ class Player_Worker(Thread):
         self.block_iter = None
         self.current_block = None
 
-    def stop(self):
+    def stop(self) -> None:
         self.stop_event.set()
 
-    def callback(self, outdata, frames, time, status):
+    def callback(self, outdata: "np.ndarray", frames: int, time, status: sd.CallbackFlags):
         try:
             if self.block_iter is None:
                 self.block_iter = self.buffer.get_data_in_blocks(
                     len(outdata),
                     starting_idx=self.player_state.cursor,
-                    frozen_deque=self.frozen_deque,
+                    audio_data=self.frozen_deque,
                 )
                 self.current_block, interval_idx = next(self.block_iter)
             else:
@@ -73,7 +51,7 @@ class Player_Worker(Thread):
         if interval_idx != self.player_state.cursor:
             self.player_state.setCursor(interval_idx)
 
-    def run(self):
+    def run(self) -> None:
         self.player_state.playing = True
         self.player_state.signals.playing_state_changed.emit(True)
 

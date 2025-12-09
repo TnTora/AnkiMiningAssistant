@@ -10,7 +10,12 @@ from util.platform_util import capture_screenshot
 from util.database import GeneralSettings, ImageSettings, imagedb, sessionsdb
 # import util.util as util
 
-win = None
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from os import PathLike
+    from util.platform_util import Window
+
+win: "Window | None" = None
 
 
 class ImageStored:
@@ -70,10 +75,10 @@ class ImageTempStorage:
 
 
 images_tmp = ImageTempStorage()
-screenshot_manager = None
+screenshot_manager: "ScreenshotManager | None" = None
 
 
-def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = None, save_path: str | None = None):
+def _take_screenshot(curr_time: datetime | None = None, wait_sec: float | None = None, save_path: "PathLike | str | None" = None) -> None:
     try:
 
         if wait_sec is not None:
@@ -90,7 +95,7 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: int | None = N
             )
             screen_region = tuple(int(ImageSettings.pixel_ratio*(a+b)) for a, b in zip(screen_region, offsets, strict=True))
 
-        tmp_img = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
+        tmp_img: str | BytesIO = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
 
         if isinstance(tmp_img, BytesIO):
             images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))

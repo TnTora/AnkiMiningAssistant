@@ -54,8 +54,8 @@ class WebsocketListenersForm(QWidget):
         self.urls_form.setContentsMargins(0, 0, 9, 0)
         self.urls_form.setVerticalSpacing(10)
         self.urls_form.setHorizontalSpacing(5)
-        self.urls_form.setLabelAlignment(Qt.AlignRight)
-        self.urls_form.setFormAlignment(Qt.AlignRight)
+        self.urls_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.urls_form.setFormAlignment(Qt.AlignmentFlag.AlignRight)
         for url in self.listen_urls:
             self.urls_form.addRow(self.listen_urls[url][0], self.listen_urls[url][1])
         self.urls_form.addRow(self.new_url_edit, self.add_url_button)
@@ -93,7 +93,7 @@ class GeneralPage(SettingsPage):
 
     def __init__(self):
         super().__init__()
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
 
         self.layout_rows = []
@@ -112,7 +112,7 @@ class GeneralPage(SettingsPage):
         self.buffer_spin.setMaximum(1800)
         self.buffer_spin.setSuffix("s")
         self.buffer_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.buffer_spin.setValue(settings.general.storage_time_limit.total_seconds())
+        self.buffer_spin.setValue(int(settings.general.storage_time_limit.total_seconds()))
 
         GeneralPage.settings_widgets["storage_time_limit"] = self.buffer_spin
         self.layout_rows.append((self.buffer_item, self.buffer_spin))
@@ -145,8 +145,8 @@ class GeneralPage(SettingsPage):
         # # --------------------------------------------------------------------------------------
 
         for row, widgets in enumerate(self.layout_rows):
-            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignTop)
-            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignRight | Qt.AlignTop)
+            self.main_layout.addWidget(widgets[0], row, 0, alignment=Qt.AlignmentFlag.AlignTop)
+            self.main_layout.addWidget(widgets[1], row, 1, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
         self.main_layout.setRowStretch(self.main_layout.rowCount(), 1)
 

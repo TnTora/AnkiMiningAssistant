@@ -72,7 +72,7 @@ class SettingsWindow(QWidget):
         self.sidebar.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
 
         self.sidebar_label = QLabel("Settings")
-        self.sidebar_label.setAlignment(Qt.AlignCenter)
+        self.sidebar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.sidebar_label.setStyleSheet("font-size:18pt;")
 
@@ -136,12 +136,12 @@ class SettingsWindow(QWidget):
         self.group_layout = QVBoxLayout()
         self.group_layout.setContentsMargins(0, 12, 0, 12)
         self.group_layout.setSpacing(0)
-        self.group_layout.setAlignment(Qt.AlignTop)
+        self.group_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.group_layout.addLayout(self.sidebar_layout)
         self.sidebar.setLayout(self.group_layout)
 
         self.confirmation_box_layout = QHBoxLayout()
-        self.confirmation_box_layout.setAlignment(Qt.AlignRight)
+        self.confirmation_box_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.confirmation_box_layout.setSpacing(13)
         self.confirmation_box_layout.setContentsMargins(0, 10, 12, 12)
         self.confirmation_box_layout.addWidget(self.apply_button)

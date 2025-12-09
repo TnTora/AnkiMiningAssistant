@@ -13,6 +13,10 @@ import os
 
 from util.database import settings
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from os import PathLike
+
 import logging
 
 logger = logging.getLogger("app_logger")
@@ -37,6 +41,7 @@ class PortalError(Exception):
 
     def __init__(self, message, interface, err_code):
         super().__init__(message)
+        self.message = message
         self.interface = interface
         self.err_code = err_code
 
@@ -444,7 +449,7 @@ screencast = ScreenCast(restore_token=None)
 screenshot = ScreenShot()
 pipewire_stream = None
 
-def capture_screenshot(save_path: str | None = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
+def capture_screenshot(save_path: "PathLike | str | None" = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
     container = save_path or BytesIO()
 
     # if pipewire_stream is None or pipewire_stream.curr_frame is None:

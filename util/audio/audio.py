@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from collections import deque
 from itertools import islice
 
-from typing import overload, Literal
+from typing import overload, Literal, TYPE_CHECKING
 from collections.abc import Iterator, Generator, Iterable
 from util.custom_typings import AudioInputDevice
 
@@ -38,6 +38,9 @@ else:
     def _isloopback(audio_input):
         return audio_input.isloopback
 
+if TYPE_CHECKING:
+    from os import PathLike
+
 import logging
 
 logger = logging.getLogger("app_logger")
@@ -47,7 +50,7 @@ monitoringAudio = None
 # buffer: "AudioBuffer | None" = None
 # secondary_buffer: "AudioBuffer | None" = None
 buffers: dict[str, "AudioBuffer"] = {}
-record_audio_buffer: recordingThread | None = None
+record_audio_buffer: "recordAudioBuffer | None" = None
 
 model = load_silero_vad(onnx=True)
 resampler = torchaudio.transforms.Resample(AudioSettings.samplerate, 16000)
@@ -139,12 +142,12 @@ class AudioBuffer:
 
         return data
 
-    def get_data_in_blocks(self, blocksize: int, starting_idx: int = 0, frozen_deque=None) -> Generator[tuple[np.ndarray, int], None, None]:
+    def get_data_in_blocks(self, blocksize: int, starting_idx: int = 0, audio_data=None) -> Generator[tuple[np.ndarray, int], None, None]:
         leftover_array: np.ndarray = np.empty((0, self.channels))
         interval_idx: int = starting_idx
 
-        if frozen_deque is not None:
-            intervals: Iterator[AudioInterval] = islice(frozen_deque, starting_idx, None)
+        if audio_data is not None:
+            intervals: Iterator[AudioInterval] = islice(audio_data, starting_idx, None)
         else:
             intervals: Iterator[AudioInterval] = self.slice_(start_idx=starting_idx, copy=True)
 
@@ -271,12 +274,28 @@ class AudioBuffer:
 
         return offset
 
+    @overload
     def extract_line_audio(
         self,
         line_time: datetime,
         next_line_time: datetime | None = None,
-        save_path: str | None = None,
-    ) -> tuple[deque[AudioInterval] | str | None, int | None, int | None]:
+        save_path: None = None,
+    ) -> tuple["deque[AudioInterval] | None", int | None, int | None]: ...
+
+    @overload
+    def extract_line_audio(
+        self,
+        line_time: datetime,
+        next_line_time: datetime | None,
+        save_path: "str | PathLike",
+    ) -> tuple["str | PathLike | None", int | None, int | None]: ...
+
+    def extract_line_audio(
+        self,
+        line_time: datetime,
+        next_line_time: datetime | None = None,
+        save_path: "str | PathLike | None" = None,
+    ) -> tuple["deque[AudioInterval] | str | PathLike | None", int | None, int | None]:
 
         line_start = None
         line_end = None

@@ -15,8 +15,8 @@ import logging
 
 logger = logging.getLogger("app_logger")
 
-ws_server = None
-selected_idxs = ()
+ws_server: "WebsocketManagerThread | None" = None
+selected_idxs: tuple[int, ...] = ()
 
 
 class SocketsSignals(QObject):
@@ -100,17 +100,17 @@ def manual_line_selection(idxs: tuple | list) -> dict:
 
 
 class WebsocketManagerThread(threading.Thread):
-    def __init__(self, ws_port, listen_urls=None):
+    def __init__(self, ws_port: int, listen_urls: list[str] | None = None) -> None:
         super().__init__(daemon=True)
         self._loop = None
         self.clients = set()
         self._event = threading.Event()
-        self.main_task = None
-        self.tasks = None
+        self.main_task: asyncio.Task | None = None
+        self.tasks: list[asyncio.Task] = []
         self.ws_port = ws_port
         self.unsent_text = []
-        self.listen_urls = listen_urls
-        self.text_received = None
+        self.listen_urls: list[str] = listen_urls if listen_urls is not None else []
+        self.text_received = asyncio.Queue()
 
     @property
     def loop(self):
@@ -121,7 +121,8 @@ class WebsocketManagerThread(threading.Thread):
         logger.info("Stopping WebSocket Server")
         for task in self.tasks:
             task.cancel()
-        self.main_task.cancel()
+        if self.main_task:
+            self.main_task.cancel()
         socket_signals.ws_state.emit(0)
         socket_signals.listener_state.emit("all", 0)
 
@@ -182,7 +183,7 @@ class WebsocketManagerThread(threading.Thread):
         async def main():
             self._loop = asyncio.get_running_loop()
             # self._loop.set_debug(True)
-            self.text_received = asyncio.Queue()
+            # self.text_received = asyncio.Queue()
             self._event.set()
             self.tasks = [asyncio.create_task(self.new_listener(url)) for url in self.listen_urls]
             self.tasks.append(asyncio.create_task(start_server()))

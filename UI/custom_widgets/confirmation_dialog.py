@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from PySide6.QtCore import (
     Qt,
     Signal,
@@ -35,13 +34,19 @@ from PIL.ImageQt import ImageQt
 
 from .audio_bar import AudioBar
 
-from util.screenshot import ImageStored
-from util.audio import AudioBuffer
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from util.screenshot import ImageStored
+
+from util.audio import AudioInterval, PlayerState
 
 if sys.platform in ["win32", "darwin"]:
-    from player_sd import PlayerState, Player_Worker
+    from util.audio.player_sd import PlayerWorkerSD
+    PlayerWorker = PlayerWorkerSD
 else:
-    from player import PlayerState, Player_Worker
+    from util.audio.player_sc import PlayerWorkerSC
+    PlayerWorker = PlayerWorkerSC
 
 
 class AlertDialog(QDialog):
@@ -51,10 +56,10 @@ class AlertDialog(QDialog):
 
         self.setWindowTitle("Alert")
 
-        buttons = QDialogButtonBox.Ok
+        buttons = QDialogButtonBox.StandardButton.Ok
 
         if cancel:
-            buttons = buttons | QDialogButtonBox.Cancel
+            buttons = buttons | QDialogButtonBox.StandardButton.Cancel
 
         QBtn = (
             buttons
@@ -69,10 +74,10 @@ class AlertDialog(QDialog):
         self.alert_label = QLabel(alert_txt)
         self.alert_label.setWordWrap(True)
 
-        self.layout = QVBoxLayout()
-        self.layout.addWidget(self.alert_label, alignment=Qt.AlignHCenter)
-        self.layout.addWidget(self.buttonBox)
-        self.setLayout(self.layout)
+        self.main_layout = QVBoxLayout()
+        self.main_layout.addWidget(self.alert_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.main_layout.addWidget(self.buttonBox)
+        self.setLayout(self.main_layout)
 
 
 class SelectLineDialog(QDialog):
@@ -84,7 +89,7 @@ class SelectLineDialog(QDialog):
         self.setWindowTitle("Select Line")
 
         QBtn = (
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
 
         self.buttonBox = QDialogButtonBox(QBtn)
@@ -103,11 +108,11 @@ class SelectLineDialog(QDialog):
         self.line_list.setSpacing(5)
         self.line_list.addItems([f"{a["line"].time}: {a["line"].text}" for a in self.lines])
 
-        self.layout = QVBoxLayout()
-        self.layout.addWidget(self.main_label)
-        self.layout.addWidget(self.line_list)
-        self.layout.addWidget(self.buttonBox)
-        self.setLayout(self.layout)
+        self.main_layout = QVBoxLayout()
+        self.main_layout.addWidget(self.main_label)
+        self.main_layout.addWidget(self.line_list)
+        self.main_layout.addWidget(self.buttonBox)
+        self.setLayout(self.main_layout)
 
     def selected_line(self):
         curr_idx = self.line_list.currentRow()
@@ -119,26 +124,26 @@ class Thumbnail(QLabel):
 
     clicked = Signal(int)
 
-    def __init__(self, img_src, w, index=None, *, selectable=False):
+    def __init__(self, img_src, w: int, index: int | None = None, *, selectable: bool = False):
         super().__init__()
         # self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.img_pixmap = None
         self.selectable = selectable
         self.selected = False
         self.hover = False
-        self.width = w
+        self.img_width = w
         self.index = index
         self.setImage(img_src, w)
         if selectable and self.index is None:
             raise ValueError("missing or invalid index")
 
-    def setImage(self, img_src, w=None):
+    def setImage(self, img_src, w: int | None = None):
         if w is not None:
-            self.width = w
+            self.img_width = w
 
         with Image.open(img_src) as img:
             qimg = ImageQt(img)
-            self.img_pixmap = QPixmap.fromImage(qimg).scaledToWidth(self.width, mode=Qt.TransformationMode.SmoothTransformation)
+            self.img_pixmap = QPixmap.fromImage(qimg).scaledToWidth(self.img_width, mode=Qt.TransformationMode.SmoothTransformation)
 
         self.setPixmap(self.img_pixmap)
 
@@ -176,7 +181,7 @@ class Thumbnail(QLabel):
         painter.setPen(pen)
         brush = QBrush()
         brush.setColor(QColor(22, 22, 22, 180))
-        brush.setStyle(Qt.SolidPattern)
+        brush.setStyle(Qt.BrushStyle.SolidPattern)
         painter.setBrush(brush)
 
         painter.drawRect(0, 0, self.size().width(), self.size().height())
@@ -186,8 +191,8 @@ class Thumbnail(QLabel):
 class NotePreviewDialog(QDialog):
     def __init__(  # noqa: PLR0915
         self,
-        imgs: Iterable[ImageStored] | None = None,
-        audio_data: AudioBuffer | None = None,
+        imgs: "Sequence[ImageStored] | None" = None,
+        audio_data: "Sequence[AudioInterval] | None" = None,
         audio_range: tuple[int, int] | None = None,
         sentence: str | None = None,
     ) -> None:
@@ -201,10 +206,10 @@ class NotePreviewDialog(QDialog):
 
         self.setWindowTitle("Note Preview")
         # self.setMinimumWidth(600)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         QBtn = (
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
 
         self.buttonBox = QDialogButtonBox(QBtn)
@@ -253,7 +258,7 @@ class NotePreviewDialog(QDialog):
 
             self.thumbs_layout = QHBoxLayout()
             self.thumbs_layout.setSpacing(3)
-            self.thumbs_layout.setAlignment(Qt.AlignHCenter)
+            self.thumbs_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.thumbs_layout.addWidget(self.curr_img)
             self.thumbs_layout.addWidget(self.scroll_thumbs)
 
@@ -261,11 +266,14 @@ class NotePreviewDialog(QDialog):
         # ------------- Audio Preview ----------------------------------------------------------
         # --------------------------------------------------------------------------------------
 
-        if self.audio_data:
+        if self.audio_data is not None:
+            if self.audio_range is None:
+                raise ValueError("NotePreviewDialog: no audio_range provided for audio_data")
+
             self.audio_top_label = QLabel("Audio Preview")
             self.audio_top_label.setFont(self.header_font)
 
-            self.audio_bar = AudioBar(h=80, audio_data=audio_data, start_interval=audio_range[0], end_interval=audio_range[1])
+            self.audio_bar = AudioBar(h=80, audio_data=self.audio_data, start_interval=self.audio_range[0], end_interval=self.audio_range[1])
             self.audio_bar.setPlayable(False)
             # self.audio_bar.setPlayerCursor(40)
             self.audio_bar.player_cursor_updated.connect(
@@ -276,7 +284,7 @@ class NotePreviewDialog(QDialog):
             )
 
             self.zoom_slider = QSlider()
-            self.zoom_slider.setOrientation(Qt.Horizontal)
+            self.zoom_slider.setOrientation(Qt.Orientation.Horizontal)
             self.zoom_slider.setMinimum(1)
             self.zoom_slider.setMaximum(32)
             self.zoom_slider.setFixedWidth(100)
@@ -302,7 +310,7 @@ class NotePreviewDialog(QDialog):
             self.scroll_audio.ensureVisible(int(self.audio_bar.left_handle_x), 0, xmargin=self.scroll_audio.width()-100)
 
             self.player_state = PlayerState()
-            self.player = Player_Worker(self.player_state, audio_data=self.audio_data)
+            self.player = PlayerWorker(self.player_state, audio_data=self.audio_data)
 
             self.play_button = QPushButton("Play")
             self.play_button.clicked.connect(self.playAudio)
@@ -315,17 +323,17 @@ class NotePreviewDialog(QDialog):
             self.reset_button.clicked.connect(self.reset_selection)
 
             self.zoom_label = QLabel("Zoom:")
-            self.zoom_label.setAlignment(Qt.AlignVCenter)
+            self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
             self.zoom_label.setContentsMargins(0, 0, 0, 4)
             # TODO: change label text to zoom icon
 
             self.bottom_audio_layout = QHBoxLayout()
-            self.bottom_audio_layout.setAlignment(Qt.AlignHCenter)
-            self.bottom_audio_layout.addWidget(self.play_button, alignment=Qt.AlignLeft)
-            self.bottom_audio_layout.addWidget(self.reset_button, alignment=Qt.AlignLeft)
+            self.bottom_audio_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            self.bottom_audio_layout.addWidget(self.play_button, alignment=Qt.AlignmentFlag.AlignLeft)
+            self.bottom_audio_layout.addWidget(self.reset_button, alignment=Qt.AlignmentFlag.AlignLeft)
             self.bottom_audio_layout.addSpacerItem(QSpacerItem(50, 5, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed))
-            self.bottom_audio_layout.addWidget(self.zoom_label, alignment=Qt.AlignRight)
-            self.bottom_audio_layout.addWidget(self.zoom_slider, alignment=Qt.AlignRight)
+            self.bottom_audio_layout.addWidget(self.zoom_label, alignment=Qt.AlignmentFlag.AlignRight)
+            self.bottom_audio_layout.addWidget(self.zoom_slider, alignment=Qt.AlignmentFlag.AlignRight)
             self.bottom_audio_layout.setStretch(1, 1)
 
         # --------------------------------------------------------------------------------------
@@ -365,7 +373,7 @@ class NotePreviewDialog(QDialog):
         self.setLayout(self.main_layout)
 
     def closeEvent(self, event):
-        if self.audio:
+        if self.audio_data:
             self.player.stop()
 
     @Slot(int)
@@ -373,7 +381,7 @@ class NotePreviewDialog(QDialog):
         self.thumbnails[self.selected_img_idx].setSelected(False)
         self.selected_img_idx = i
         self.thumbnails[self.selected_img_idx].setSelected(True)
-        self.curr_img.setImage(self.imgs[i].img_bytesIO)
+        self.curr_img.setImage(self.imgs[i].img_bytesIO)  # ty:ignore[non-subscriptable]
 
     def playAudio(self) -> None:
         if self.player_state.playing:
@@ -385,7 +393,7 @@ class NotePreviewDialog(QDialog):
                 self.audio_bar.setPlayerCursor(self.audio_bar.left_handle)
             self.audio_bar.setPlayable(True)
             self.play_button.setText("Pause")
-            self.player = Player_Worker(self.player_state, audio_data=self.audio_data)
+            self.player = PlayerWorker(self.player_state, audio_data=self.audio_data)
             self.player.start()
 
     @Slot(int)
@@ -413,7 +421,7 @@ class NotePreviewDialog(QDialog):
 
         cursor_x = 2+(cursor)*5/self.audio_bar.zoom
         if self.player_state.playing:
-            self.scroll_audio.ensureVisible(cursor_x, 0)
+            self.scroll_audio.ensureVisible(int(cursor_x), 0)
 
     @Slot(int)
     def update_zoom(self, value) -> None:

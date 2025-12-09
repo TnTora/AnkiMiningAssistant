@@ -33,7 +33,7 @@ class SettingItem(QWidget):
         if self.description is not None:
             self.description_label = QLabel(self.description)
             self.description_label.setWordWrap(True)
-            self.description_label.setAlignment(Qt.AlignTop)
+            self.description_label.setAlignment(Qt.AlignmentFlag.AlignTop)
             self.description_label.setStyleSheet("""
                 font-size:9pt;
                 font-weight:bold;
@@ -57,7 +57,7 @@ class SettingsPage(QWidget):
         self.scroll_content.setLayout(self.main_layout)
 
         self.scroll_area = QScrollArea()
-        self.scroll_area.setAlignment(Qt.AlignTop)
+        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setWidget(self.scroll_content)

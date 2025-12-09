@@ -39,7 +39,7 @@ from util.database import settings
 
 class ManualSelection(RegionSelect):
 
-    def __init__(self, offsets_widget: QWidget):
+    def __init__(self, offsets_widget: "OffsetCalibration"):
         super().__init__(0, 0, offsets_widget.target.size().width(), offsets_widget.target.size().height())
         self.selection_color = QColor(0, 0, 0, 1)
         self.offsets_widget = offsets_widget
@@ -55,10 +55,10 @@ class ManualSelection(RegionSelect):
 
     def save_selection(self):
         coords = self.selection.normalized().getCoords()
-        img_bytesIO = capture_screenshot(img_format="PNG", max_resolution=None)
+        img_bytesIO = capture_screenshot(img_format="PNG", max_resolution="")
 
         self.offsets_widget.img = Image.open(img_bytesIO).resize((self.screen_geometry.width(), self.screen_geometry.height()))
-        self.offsets_widget.coords = coords
+        self.offsets_widget.coords = coords  # ty:ignore[invalid-assignment]
         self.offsets_widget.update_pixmap(crop=True)
 
         self.offsets_widget.instruction_label.setText(
@@ -85,7 +85,7 @@ class ScreenshotWorker(QRunnable):
     def run(self):
         screen_region = self.widget.get_screen_region()
         # print(f"{screen_region = }")
-        img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG", max_resolution=None)
+        img_bytesIO = capture_screenshot(None, None, screen_region, img_format="PNG", max_resolution="")
         with Image.open(img_bytesIO) as img:
             # print(f"{img.size = }")
             qimg = ImageQt(img)
@@ -136,7 +136,7 @@ class OffsetCalibration(QWidget):
         )
 
         self.target = QLabel("Example")
-        self.target.setAlignment(Qt.AlignCenter)
+        self.target.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.target.setFixedSize(QSize(200, 200))
         self.target.setStyleSheet("""
             background:#aa0000;
@@ -246,7 +246,7 @@ class ScalingCalibration(QWidget):
 
         self.monitor = QLabel()
         self.monitor.setFixedWidth(400)
-        self.monitor.setFixedHeight(400*self.aspect_ratio_inv)
+        self.monitor.setFixedHeight(int(400*self.aspect_ratio_inv))
         self.monitor.setStyleSheet("border: 1px solid black;")
 
         # -------------------------------------------------------------------------------------
@@ -254,7 +254,7 @@ class ScalingCalibration(QWidget):
         # -------------------------------------------------------------------------------------
 
         self.main_layout = QVBoxLayout()
-        self.main_layout.setAlignment(Qt.AlignHCenter)
+        self.main_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.main_layout.addWidget(self.instruction_label)
         self.main_layout.addWidget(self.scaling)
         self.main_layout.addWidget(self.monitor)
@@ -275,7 +275,7 @@ class ScalingCalibration(QWidget):
 
     def get_screen_region(self):
         screen_region = QGuiApplication.primaryScreen().geometry().getCoords()
-        screen_region = tuple(int(self.scaling.value()*a) for a in screen_region)
+        screen_region = tuple(int(self.scaling.value()*a) for a in screen_region)  # ty:ignore[not-iterable]
         return screen_region
 
     def update_pixmap(self, pixmap):

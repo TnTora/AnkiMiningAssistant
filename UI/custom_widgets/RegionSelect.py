@@ -21,10 +21,10 @@ from util.database import sessionsdb
 class RegionSelect(QWidget):
     cancelled = Signal()
 
-    def __init__(self, x=None, y=None, w=None, h=None):
+    def __init__(self, x: int | None = None, y: int | None = None, w: int | None = None, h: int | None = None):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.screen_geometry = QGuiApplication.primaryScreen().geometry()
         self.pixel_ratio = QGuiApplication.primaryScreen().devicePixelRatio()
         self.setGeometry(self.screen_geometry)
@@ -33,10 +33,10 @@ class RegionSelect(QWidget):
         self.available_geometry = QGuiApplication.primaryScreen().availableGeometry()
         # print(f"{self.screen_geometry = }\n{self.available_geometry = }")
 
-        x = x or self.available_geometry.x()
-        y = y or self.available_geometry.y()
-        w = w or self.available_geometry.width()/2
-        h = h or self.available_geometry.height()/2
+        x: int = x or self.available_geometry.x()
+        y: int = y or self.available_geometry.y()
+        w: int = w or int(self.available_geometry.width()/2)
+        h: int = h or int(self.available_geometry.height()/2)
 
         self.starting_rect = (x, y, w, h)
 
@@ -89,7 +89,7 @@ class RegionSelect(QWidget):
         # if sys.platform != "darwin":
         #     coords = tuple(int(a*self.pixel_ratio) for a in coords)
         # print(f"{self.pixel_ratio = }; {coords = }")
-        sessionsdb.current_session["screen_region"] = coords
+        sessionsdb.current_session["screen_region"] = coords  # ty:ignore[invalid-assignment]
         self.close()
 
     def adjust_selection_box(self):
@@ -167,7 +167,7 @@ class RegionSelect(QWidget):
             return
         self.pressed = ""
         self.old_mouse_pos = None
-        self.setCursor(Qt.ArrowCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def mouseMoveEvent(self, event):
         pos = event.pos()
@@ -198,7 +198,7 @@ class RegionSelect(QWidget):
         elif self.pressed in func_corners:
             func_corners[self.pressed](pos)
         elif self.pressed == "center":
-            self.setCursor(Qt.BlankCursor)
+            self.setCursor(Qt.CursorShape.BlankCursor)
             diff = pos - self.old_mouse_pos
             self.old_mouse_pos = pos
             self.selection.translate(diff)
@@ -210,7 +210,7 @@ class RegionSelect(QWidget):
         super().paintEvent(e)
         painter = QPainter()
         painter.begin(self)
-        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.fillRect( 0, 0, self.width(), self.height(), QColor(0, 0, 0, 200))
         painter.setPen(QPen(QColor(255, 0, 0), 1))
         painter.setBrush(QBrush(self.selection_color))

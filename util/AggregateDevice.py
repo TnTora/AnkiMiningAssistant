@@ -180,7 +180,7 @@ def createAggregateDevice(name: str = "SystemAudioRecorder", *, private: bool = 
     return None, None
 
 
-def isloopback(a_id):
+def isloopback(a_id: int) -> bool:
     prop = _ffi.new("AudioObjectPropertyAddress*", {
         "mSelector": kAudioAggregateDevicePropertyTapList,
         "mScope": kAudioObjectPropertyScopeGlobal,
@@ -189,6 +189,6 @@ def isloopback(a_id):
     return bool(has_prop)
 
 
-def destroyAggregateDevice(aggr_id, tap_id):
+def destroyAggregateDevice(aggr_id: int, tap_id: int) -> None:
     _ca.AudioHardwareDestroyAggregateDevice(aggr_id)
     _ca.AudioHardwareDestroyProcessTap(tap_id)

@@ -6,6 +6,8 @@ import soundfile as sf
 import inspect
 import json
 
+from util.custom_typings import Session
+
 
 class GeneralSettings:
 
@@ -18,7 +20,7 @@ class GeneralSettings:
 class AnkiSettings:
 
     port: int = 8765
-    media_dir = None
+    media_dir: str | None = None
     auto_update_last_note: bool = True
     open_note_in_gui: bool = True
     deck: str = "*"
@@ -337,24 +339,25 @@ class LineDB:
 
 
 class SessionDB:
+    manual_default: Session = {
+        "AppName": "",
+        "WindowTitle": "",
+        "continuous_recording": True,
+        "auto_update": False,
+        "open_in_browser": True,
+        "preview_note": False,
+        "use_screen_region": False,
+        "screen_region": (0, 0, 0, 0),
+    }
 
     def __init__(self, path) -> None:
         self.path = path
-        self.sessions_dict = {}
-        self.current_session = {}
+        self.sessions_dict: dict[str, Session] = {}
+        self.current_session: Session = self.manual_default
         self.create_table()
         self.load_sessions()
         if "Manual" not in self.sessions_dict:
-            self.sessions_dict["Manual"] = {
-                "AppName": "",
-                "WindowTitle": "",
-                "continuous_recording": True,
-                "auto_update": False,
-                "open_in_browser": True,
-                "preview_note": False,
-                "use_screen_region": False,
-                "screen_region": (0, 0, 0, 0),
-            }
+            self.sessions_dict["Manual"] = self.manual_default
         try:
             self.current_session = self.sessions_dict[GeneralSettings.last_session]
         except KeyError:
@@ -381,11 +384,12 @@ class SessionDB:
             with conn:
                 conn.execute("DELETE FROM sessions;")
                 for name, session in self.sessions_dict.items():
-                    session["screen_region"] = json.dumps(session["screen_region"])
+                    # session["screen_region"] = json.dumps(session["screen_region"])
+                    screen_region = json.dumps(session["screen_region"])
                     conn.execute("""
                         INSERT INTO sessions (name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note, use_screen_region, screen_region)
                         VALUES (:name, :AppName, :WindowTitle, :continuous_recording, :auto_update, :open_in_browser, :preview_note, :use_screen_region, :screen_region);
-                    """, {"name": name} | session)
+                    """, {"name": name} | session | {"screen_region": screen_region})
 
     def load_sessions(self):
         with closing(sqlite3.connect(self.path)) as conn:
@@ -393,7 +397,7 @@ class SessionDB:
                 for name, a_name, w_title, c_rec, a_up, open_gui, preview_note, use_screen_region, screen_region in conn.execute("""
                     SELECT name, AppName, WindowTitle, continuous_recording, auto_update, open_in_browser, preview_note, use_screen_region, screen_region FROM sessions
                 """):
-                    self.sessions_dict[name] = {
+                    self.sessions_dict[name]: Session = {
                         "AppName": a_name,
                         "WindowTitle": w_title,
                         "continuous_recording": c_rec,

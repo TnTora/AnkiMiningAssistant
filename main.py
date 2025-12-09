@@ -6,6 +6,7 @@ from PySide6.QtGui import (
     QFont,
     QIcon,
     QPalette,
+    QMouseEvent,
 )
 from PySide6.QtCore import (
     # QCoreApplication,
@@ -56,6 +57,7 @@ from util.platform_util import (
     getAppWindows,
     platform,
     is_wayland,
+    Window,
 )
 
 if platform == "darwin":
@@ -70,11 +72,17 @@ from UI.settings_gui import SettingsWindow
 from UI.custom_widgets.confirmation_dialog import NotePreviewDialog, AlertDialog, SelectLineDialog
 
 if platform in ["win32", "darwin"]:
-    from player_sd import PlayerState, Player_Worker
+    from util.audio.player_sd import PlayerWorkerSD
+    PlayerWorker = PlayerWorkerSD
 else:
-    from player import PlayerState, Player_Worker
+    from util.audio.player_sc import PlayerWorkerSC
+    PlayerWorker = PlayerWorkerSC
 
 from UI.custom_widgets import RegionSelect, CalibrationDialog
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from util.custom_typings import Session, SessionKeysBool
 
 import logging
 
@@ -106,13 +114,15 @@ def _startMonitoring(audio_input) -> None:
 
 def _stopMonitoring() -> None:
 
-    audio.record_audio_buffer.stop_recording()
-    audio.record_audio_buffer.join()
-    audio.record_audio_buffer = None
+    if audio.record_audio_buffer is not None:
+        audio.record_audio_buffer.stop_recording()
+        audio.record_audio_buffer.join()
+        audio.record_audio_buffer = None
 
-    screenshot.screenshot_manager.stop_recording()
-    screenshot.screenshot_manager.join()
-    screenshot.screenshot_manager = None
+    if screenshot.screenshot_manager is not None:
+        screenshot.screenshot_manager.stop_recording()
+        screenshot.screenshot_manager.join()
+        screenshot.screenshot_manager = None
 
 
 if is_wayland:
@@ -213,6 +223,16 @@ class SessionComboBox(QComboBox):
             self.setCurrentIndex(curr_idx)
 
 
+class ClickableLabel(QLabel):
+    clicked = Signal()
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self.clicked.emit()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):  # noqa: PLR0915
         super().__init__()
@@ -228,16 +248,16 @@ class MainWindow(QMainWindow):
         self.with_lines_height = None
         self.apps = getAllApps()
         self.curr_app = None
-        self.windows = None
-        self.curr_win = None
+        self.windows: list[Window] = []
+        self.curr_win: Window | None = None
         self.audio_inputs, preferred_idx = audio.get_audio_inputs()
         self.audio_input = None
-        self.player_state = PlayerState()
+        self.player_state = audio.PlayerState()
 
         self.av_monitoring = False
 
         self.setWindowTitle("AnkiMiningAssistant")
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocus()
 
         # --------------------------------------------------------------------------------------
@@ -351,7 +371,7 @@ class MainWindow(QMainWindow):
         self.sentence_font = QFont()
         self.sentence_font.setPointSize(15)
         self.anki_sentence = QLabel()
-        self.anki_sentence.setAlignment(Qt.AlignTop)
+        self.anki_sentence.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.anki_sentence.setWordWrap(True)
         self.anki_sentence.setFont(self.sentence_font)
 
@@ -377,15 +397,15 @@ class MainWindow(QMainWindow):
         self.audio_slider.setMaximum(10000)
         self.audio_slider.setValue(0)
         self.audio_slider.setSingleStep(1)
-        self.audio_slider.setOrientation(Qt.Horizontal)
+        self.audio_slider.setOrientation(Qt.Orientation.Horizontal)
         self.audio_slider.sliderPressed.connect(self.slider_pressed)
         self.audio_slider.sliderReleased.connect(self.slider_released)
 
         self.play_button = QPushButton("Play")
         self.play_button.released.connect(self.playAudio)
 
-        self.show_lines_label = QLabel("∨ Hide Lines")  # noqa: RUF001
-        self.show_lines_label.mouseReleaseEvent = self.toggle_lines
+        self.show_lines_label = ClickableLabel("∨ Hide Lines")  # noqa: RUF001
+        self.show_lines_label.clicked.connect(self.toggle_lines)
         self.settings_button = QPushButton("Settings")
         self.settings_button.released.connect(self.open_config)
 
@@ -458,13 +478,13 @@ class MainWindow(QMainWindow):
         self.anki_info_grid.setColumnStretch(1, 1)
         self.anki_info_grid.setRowStretch(1, 1)
 
-        self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignVCenter)
-        self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignTop)
+        self.anki_info_grid.addWidget(QLabel("Expression:"), 0, 0, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.anki_info_grid.addWidget(QLabel("Sentence:"), 1, 0, alignment=Qt.AlignmentFlag.AlignTop)
         self.anki_info_grid.addWidget(self.anki_last_card, 0, 1)
         self.anki_info_grid.addWidget(self.anki_sentence, 1, 1)
 
         self.anki_checks_layout = QHBoxLayout()
-        self.anki_checks_layout.setAlignment(Qt.AlignLeft)
+        self.anki_checks_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.anki_checks_layout.addWidget(self.auto_update_check)
         self.anki_checks_layout.addWidget(self.open_in_browser_check)
         self.anki_checks_layout.addWidget(self.preview_note_check)
@@ -497,13 +517,13 @@ class MainWindow(QMainWindow):
 
         self.middle_row = QHBoxLayout()
         self.middle_row.setContentsMargins(10, 0, 10, 0)
-        self.middle_row.addWidget(self.show_lines_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
-        self.middle_row.addWidget(self.settings_button, alignment=Qt.AlignRight)
+        self.middle_row.addWidget(self.show_lines_label, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.middle_row.addWidget(self.settings_button, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 10, 0, 0)
         self.main_layout.setSpacing(0)
-        self.main_layout.setAlignment(Qt.AlignTop)
+        self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.main_layout.addLayout(self.top_row)
         # self.main_layout.addLayout(self.bottom_half)
         self.main_layout.addLayout(self.middle_row)
@@ -593,7 +613,7 @@ class MainWindow(QMainWindow):
         anki.anki_signals.note_update_select_line.connect(self.openLineSelectionDialog)
         anki.anki_signals.note_update_confirm.connect(self.openConfirmDialog)
 
-        self.player = None
+        self.player = PlayerWorker(self.player_state)
         self.player_state.signals.cursor_update.connect(self.updateSlider)
         self.player_state.signals.playing_state_changed.connect(
             self.update_play_button
@@ -631,8 +651,9 @@ class MainWindow(QMainWindow):
             self.status_bar.addPermanentWidget(tmp_status)
 
     def update_listeners(self):
-        util.sockets.ws_server.stop_server()
-        util.sockets.ws_server.join()
+        if util.sockets.ws_server is not None:
+            util.sockets.ws_server.stop_server()
+            util.sockets.ws_server.join()
         util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
 
         self.add_listeners_status()
@@ -703,23 +724,6 @@ class MainWindow(QMainWindow):
             anki.start_auto_note_update(update_img=update_img, update_audio=update_audio, confirmation=sessionsdb.current_session["preview_note"])
         return update_note_button
 
-    # def update_session_name(self, event) -> None:
-    #     new_name = self.session_select.currentText()
-
-    #     if not new_name:
-    #         return
-    #     if new_name == settings.general.last_session:
-    #         return
-
-    #     sessionsdb.sessions_dict[new_name] = sessionsdb.sessions_dict.pop(settings.general.last_session)
-    #     settings.general.last_session = new_name
-
-    #     with QSignalBlocker(self.session_select) as blocker:
-    #         curr_idx = self.session_select.currentIndex()
-    #         self.session_select.clear()
-    #         self.session_select.addItems(list(sessionsdb.sessions_dict.keys()))
-    #         self.session_select.setCurrentIndex(curr_idx)
-
     def update_selected_lines(self):
         tmp_idx = sorted([a.row() for a in self.listwidget.selectedIndexes()])
         tmp_idx = tuple(tmp_idx)
@@ -756,7 +760,7 @@ class MainWindow(QMainWindow):
 
     def add_session(self) -> None:
         new_session_name = str(datetime.now())
-        sessionsdb.sessions_dict[new_session_name] = {
+        sessionsdb.sessions_dict[new_session_name]: Session = {
             "AppName": "",
             "WindowTitle": "",
             "continuous_recording": settings.audio.continuous_recording,
@@ -844,35 +848,33 @@ class MainWindow(QMainWindow):
         finally:
             self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
-    def set_app(self, index: int) -> None:
-        try:
-            if index < 0:
-                return
-
-            sessionsdb.current_session["AppName"] = self.apps[index].localizedName()
-            self.curr_app = self.apps[index]
-
-            self.windows = getAppWindows(self.apps[index])
-            self.window_select.clear()
-            self.window_select.addItems([w.title for w in self.windows])
-            self.window_select.addItem("**No Window Selected**")
-            self.window_select.setCurrentText("**No Window Selected**")
-            self.set_window(None)
-        except (KeyError, IndexError, TypeError) as e:
+    def set_app(self, index: int | None) -> None:
+        if index is None or index < 0:
             self.curr_app = None
             logger.info("No App Selected")
+            return
 
-    def set_window(self, index: int) -> None:
-        try:
-            if index < 0:
-                return
-            screenshot.win = self.windows[index]
-            sessionsdb.current_session["WindowTitle"] = self.windows[index].title
-            self.curr_win = self.windows[index]
-        except (KeyError, IndexError, TypeError) as e:
+        sessionsdb.current_session["AppName"] = self.apps[index].localizedName()
+        self.curr_app = self.apps[index]
+
+        self.windows = getAppWindows(self.apps[index])
+        self.window_select.clear()
+        self.window_select.addItems([w.title for w in self.windows])
+        self.window_select.addItem("**No Window Selected**")
+        self.window_select.setCurrentText("**No Window Selected**")
+        self.set_window(None)
+
+
+    def set_window(self, index: int | None) -> None:
+        if index is None or index < 0:
             screenshot.win = None
             self.curr_win = None
             logger.info("No Window Selected")
+            return
+
+        screenshot.win = self.windows[index]
+        sessionsdb.current_session["WindowTitle"] = self.windows[index].title
+        self.curr_win = self.windows[index]
 
 
     def set_audio_input(self, index: int) -> None:
@@ -915,7 +917,7 @@ class MainWindow(QMainWindow):
 
         self.monitoring_button.setEnabled(True)
 
-    def set_check_setting_slot_gen(self, setting: str) -> None:
+    def set_check_setting_slot_gen(self, setting: "SessionKeysBool") -> None:
         @Slot(Qt.CheckState)
         def set_check_setting(state: Qt.CheckState) -> None:
             if state == Qt.CheckState.Checked:
@@ -989,7 +991,7 @@ class MainWindow(QMainWindow):
             self.player.stop()
         else:
             self.player_state.total_intervals = len(audio.buffers["primary"])
-            self.player = Player_Worker(self.player_state)
+            self.player = PlayerWorker(self.player_state)
             self.player.start()
 
     def slider_pressed(self) -> None:
@@ -1002,13 +1004,12 @@ class MainWindow(QMainWindow):
             self.player.stop()
             self.player.join()
             self.player_state.cursor = int((self.audio_slider.value()/10000)*self.player_state.total_intervals)
-            self.player = Player_Worker(self.player_state)
+            self.player = PlayerWorker(self.player_state)
             self.player.start()
         self.player_state.signals.cursor_update.connect(self.updateSlider)
 
-    def toggle_lines(self, event) -> None:
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
+    @Slot()
+    def toggle_lines(self) -> None:
         if not self.lines_shown:
             self.lines_shown = True
             self.listwidget.show()
@@ -1078,7 +1079,8 @@ def main() -> None:
     if window.player_state.playing:
         window.player.stop()
 
-    util.sockets.ws_server.stop_server()
+    if util.sockets.ws_server:
+        util.sockets.ws_server.stop_server()
 
     update_all_dbs()
 

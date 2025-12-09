@@ -8,6 +8,10 @@ from io import BytesIO
 from PIL import ImageGrab
 from math import sqrt
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from os import PathLike
+
 
 class App:
 
@@ -118,8 +122,8 @@ resolutions = {
     "360p": 640*360,
 }
 
-def capture_screenshot(save_path: str | None = None, win: Window | None = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
-    container = save_path or BytesIO()
+def capture_screenshot(save_path: "PathLike | str | None" = None, win: Window | None = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
+    container: PathLike | str | BytesIO = save_path or BytesIO()
     if screen_region:
         img = ImageGrab.grab(bbox=screen_region)
     elif win:
