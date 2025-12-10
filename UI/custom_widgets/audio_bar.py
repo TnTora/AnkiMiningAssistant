@@ -1,6 +1,7 @@
 from math import ceil, floor
 import numpy as np
 from collections.abc import Sequence
+from itertools import islice
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
@@ -20,6 +21,8 @@ from PySide6.QtWidgets import (
 
 from util import audio
 from util.database import settings
+
+from time import perf_counter
 
 
 def calculate_rms(a):
@@ -49,14 +52,19 @@ class AudioBar(QWidget):
         self.sub_unit_px = round(self.sub_unit * one_sec_interval_px)
         self.main_unit_px = round(self.main_unit/self.sub_unit) * self.sub_unit_px
 
-        # self.h: int = h
-        # self.w: int = 0
         self.audio_data = audio_data
-        self.total_intervals = len(self.audio_data)
+        self.total_intervals: int = len(self.audio_data)
+        self.zoomed_out_intervals: int = ceil(self.total_intervals/self.zoom)
+        w: int = (self.zoomed_out_intervals * 5) + 2
+        self.setFixedWidth(w)
         self.setFixedHeight(h)
-        self.intervals_rms_vad = []
-        self.peak = 0
+
+        print(f"{self.zoomed_out_intervals = }")
+        self.intervals_rms_vad = np.empty((self.zoomed_out_intervals, 2))
+        self.intervals_rms_vad.fill(None)
+
         self.calculate_intervals()
+        self.peak = np.max(self.intervals_rms_vad[:,0])
 
         self.left_handle: int = start_interval
         self.right_handle: int = end_interval
@@ -71,19 +79,23 @@ class AudioBar(QWidget):
 
         self.old_mouse_pos_x = None
 
-    def calculate_intervals(self) -> None:
+    def calculate_intervals(self, start_idx: int | None = None, end_idx: int | None = None) -> None:
         """
         Calculate intervals to draw.
 
         Merge audio intervals based on zoom attribute and calculate
         their respective rms.
         """
-        self.intervals_rms_vad = []
-        self.peak = 0
+        start_idx: int = (start_idx or 0) * self.zoom
+        end_idx: int = end_idx*self.zoom if end_idx is not None else self.total_intervals
         tmp_interval = np.empty((0, audio.buffers["primary"].channels))
         tmp_vad = False
-        i = 0
-        for interval in self.audio_data:
+        i: int = start_idx
+        for interval in islice(self.audio_data, start_idx, end_idx):
+            if not np.isnan(self.intervals_rms_vad[floor(i/self.zoom)][0]):
+                i += 1
+                continue
+
             tmp_interval = np.append(tmp_interval, interval.data, axis=0)
             tmp_vad = tmp_vad or interval.vad > settings.audio.vad_threshold
 
@@ -92,28 +104,24 @@ class AudioBar(QWidget):
                 continue
 
             rms = np.max(calculate_rms(tmp_interval))
-            self.intervals_rms_vad.append((rms, tmp_vad))
-
-            self.peak = max(self.peak, rms)
+            self.intervals_rms_vad[floor((i-1)/self.zoom)] = [rms, tmp_vad]
 
             tmp_interval = np.empty((0, audio.buffers["primary"].channels))
             tmp_vad = False
         if len(tmp_interval) > 0:
             rms = np.max(calculate_rms(tmp_interval))
-            self.intervals_rms_vad.append((rms, tmp_vad))
-        self.w = (len(self.intervals_rms_vad) * 5) + 2
-        self.setFixedWidth(self.w)
+            self.intervals_rms_vad[-1] = [rms, tmp_vad]
 
     def setZoom(self, scale: int) -> None:
-        """Update zoom and recalculate intervals and units."""
+        """Update zoom and attributes depending on its value."""
         if self.zoom == scale:
             return
         self.zoom = scale
-        self.zoom_changed.emit(self.zoom)
-        # bar width 3px, space inbetween 2px
-        self.w = (int(self.total_intervals/self.zoom) * 5) + 4
-        self.setFixedSize(QSize(self.w, self.height()))
-        self.calculate_intervals()
+        self.zoomed_out_intervals: int = ceil(self.total_intervals/self.zoom)
+        self.intervals_rms_vad = np.empty((self.zoomed_out_intervals, 2))
+        self.intervals_rms_vad.fill(None)
+        w = (self.zoomed_out_intervals * 5) + 2
+        self.setFixedWidth(w)
         self.update_units()
         self.update()
 
@@ -136,6 +144,7 @@ class AudioBar(QWidget):
         self.update()
 
     def setRange(self, start: int, end: int) -> None:
+        """Set values for left_handle and right_handle delimiting selection."""
         self.left_handle = start
         self.right_handle = end
         self.left_handle_x = 2+(self.left_handle)*5/self.zoom
@@ -147,7 +156,7 @@ class AudioBar(QWidget):
 
         self.update()
 
-    def getRange(self):
+    def getRange(self) -> tuple[int, int]:
         return self.left_handle, self.right_handle+1
 
     # TODO: change cursor when close to handles
@@ -250,7 +259,7 @@ class AudioBar(QWidget):
     def to_seconds(self, pixels: float) -> float:
         return (pixels-2)/5*settings.audio.interval_duration*self.zoom
 
-    def update_units(self):
+    def update_units(self) -> None:
         if self.zoom < 5:  # noqa: PLR2004
             self.main_unit = 1
             self.sub_unit = 0.1
@@ -269,6 +278,7 @@ class AudioBar(QWidget):
         self.main_unit_px = round(self.main_unit/self.sub_unit) * self.sub_unit_px
 
     def draw_bars(self, painter: QPainter, start_idx: int, end_idx: int) -> None:
+        self.calculate_intervals(start_idx, end_idx)
         voice_color = QColor(216, 191, 65)
         no_voice_color = QColor(20, 20, 20)
 
@@ -369,12 +379,12 @@ class AudioBar(QWidget):
             current_px += self.sub_unit_px
 
 
-    def paintEvent(self, event: QPaintEvent):
-        super().paintEvent(event)
+    def paintEvent(self, event: QPaintEvent) -> None:
+        # super().paintEvent(event)
 
         start_idx = max(((event.rect().x()-2)//5)-10, 0)
         end_idx = ((event.rect().x()+event.rect().width()-2)//5)+10
-        end_idx = min(end_idx, len(self.intervals_rms_vad))
+        end_idx = min(end_idx, self.zoomed_out_intervals)
 
         if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark:
             background_color = QColor(100, 100, 100)
@@ -391,7 +401,8 @@ class AudioBar(QWidget):
         painter.setBrush(brush)
 
         # Draw Background
-        painter.drawRect(0, 0, painter.device().width(), painter.device().height())
+        # painter.drawRect(0, 0, painter.device().width(), painter.device().height())
+        painter.drawRect(event.rect())
 
         # Draw audio intervals as bars
         self.draw_bars(painter, start_idx, end_idx)
@@ -412,8 +423,7 @@ class AudioBar(QWidget):
         # Draw timeline
         start_px = floor((event.rect().x()-2)/self.sub_unit_px) * self.sub_unit_px + 2 - 5*self.sub_unit_px
         start_px = max(2, floor(start_px))
-        end_px = ceil((event.rect().x()+event.rect().width()-2)/self.sub_unit_px) * self.sub_unit_px + 2 + 5*self.sub_unit_px
-        end_px = min(ceil(end_px), self.w)
+        end_px = event.rect().x()+event.rect().width()-2
         self.draw_timeline(painter, start_px, end_px)
 
         painter.end()

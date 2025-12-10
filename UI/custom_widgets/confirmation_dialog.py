@@ -279,9 +279,9 @@ class NotePreviewDialog(QDialog):
             self.audio_bar.player_cursor_updated.connect(
                 self.update_bar_cursor
             )
-            self.audio_bar.zoom_changed.connect(
-                self.update_bar_zoom
-            )
+            # self.audio_bar.zoom_changed.connect(
+            #     self.update_bar_zoom
+            # )
 
             self.zoom_slider = QSlider()
             self.zoom_slider.setOrientation(Qt.Orientation.Horizontal)
