@@ -849,7 +849,7 @@ class MainWindow(QMainWindow):
             self.screen_region_check.setChecked(sessionsdb.current_session["use_screen_region"])
 
     def set_app(self, index: int | None) -> None:
-        if index is None or index < 0:
+        if index is None or index < 0 or index > len(self.apps)-1:
             self.curr_app = None
             logger.info("No App Selected")
             return
@@ -866,7 +866,7 @@ class MainWindow(QMainWindow):
 
 
     def set_window(self, index: int | None) -> None:
-        if index is None or index < 0:
+        if index is None or index < 0 or index > len(self.windows)-1:
             screenshot.win = None
             self.curr_win = None
             logger.info("No Window Selected")
