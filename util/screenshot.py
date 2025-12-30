@@ -21,7 +21,7 @@ win: "Window | None" = None
 class ImageStored:
     __slots__ = ["img_bytesIO", "time"]
 
-    def __init__(self, img_bytesIO, time=None):
+    def __init__(self, img_bytesIO, time=None) -> None:
         self.img_bytesIO = img_bytesIO
         self.time = time or datetime.now()
 
@@ -95,7 +95,7 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: float | None =
             )
             screen_region = tuple(int(ImageSettings.pixel_ratio*(a+b)) for a, b in zip(screen_region, offsets, strict=True))
 
-        tmp_img: str | BytesIO = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
+        tmp_img: PathLike | str | BytesIO = capture_screenshot(save_path, win, screen_region=screen_region, img_format=ImageSettings.format)
 
         if isinstance(tmp_img, BytesIO):
             images_tmp.append(ImageStored(img_bytesIO=tmp_img, time=curr_time))
@@ -105,7 +105,7 @@ def _take_screenshot(curr_time: datetime | None = None, wait_sec: float | None =
         pass
 
 
-def take_screenshot():
+def take_screenshot() -> threading.Thread:
     screenshot_thread = threading.Thread(target=_take_screenshot, daemon=True)
     screenshot_thread.start()
     return screenshot_thread
@@ -113,15 +113,15 @@ def take_screenshot():
 
 class ScreenshotManager(threading.Thread):
 
-    def __init__(self, interval=1):
+    def __init__(self, interval=1) -> None:
         super().__init__()
         self.stop_rec = threading.Event()
         self.interval = interval
 
-    def stop_recording(self):
+    def stop_recording(self) -> None:
         self.stop_rec.set()
 
-    def run(self):
+    def run(self) -> None:
         while True:
             if self.stop_rec.is_set():
                 break

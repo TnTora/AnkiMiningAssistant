@@ -152,7 +152,7 @@ def capture_screenshot(  # noqa: C901, PLR0915
     screen_region: tuple | None = None,
     img_format: str = "WebP",
     max_resolution: str = "1080p",
-) -> str | BytesIO:
+) -> "PathLike | str | BytesIO":
 
     finish = threading.Event()
     file_data = None

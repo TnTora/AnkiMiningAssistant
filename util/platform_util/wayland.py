@@ -7,15 +7,13 @@ from jeepney.io.blocking import Proxy, open_dbus_connection
 from io import BytesIO
 from PIL import Image
 
+from math import sqrt
+
 import pipewire
 import threading
 import os
 
 from util.database import settings
-
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from os import PathLike
 
 import logging
 
@@ -449,13 +447,8 @@ screencast = ScreenCast(restore_token=None)
 screenshot = ScreenShot()
 pipewire_stream = None
 
-def capture_screenshot(save_path: "PathLike | str | None" = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
+def capture_screenshot(save_path: os.PathLike | str | None = None, win = None, screen_region: tuple | None = None, img_format: str = "WebP", max_resolution: str = "1080p"):
     container = save_path or BytesIO()
-
-    # if pipewire_stream is None or pipewire_stream.curr_frame is None:
-    #     return None
-
-    # print(f"{pipewire_stream.curr_frame.chunk = }, {pipewire_stream.curr_frame.data = }, {(pipewire_stream.width, pipewire_stream.height) = }")
 
     if pipewire_stream is None: # settings.general.last_session == "Manual":
         img = screenshot.grab()

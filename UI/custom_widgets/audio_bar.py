@@ -59,7 +59,6 @@ class AudioBar(QWidget):
         self.setFixedWidth(w)
         self.setFixedHeight(h)
 
-        print(f"{self.zoomed_out_intervals = }")
         self.intervals_rms_vad = np.empty((self.zoomed_out_intervals, 2))
         self.intervals_rms_vad.fill(None)
 

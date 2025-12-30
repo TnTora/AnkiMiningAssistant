@@ -35,7 +35,7 @@ class SettingItem(QWidget):
             self.description_label.setWordWrap(True)
             self.description_label.setAlignment(Qt.AlignmentFlag.AlignTop)
             self.description_label.setStyleSheet("""
-                font-size:9pt;
+                font-size:10pt;
                 font-weight:bold;
                 color: #b4b4b4;
             """)

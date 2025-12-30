@@ -5,6 +5,8 @@ import json
 from datetime import datetime, timedelta
 from collections import deque
 
+from collections.abc import Iterator
+
 from PySide6.QtCore import Signal, QObject
 
 from util.screenshot import _take_screenshot
@@ -39,9 +41,9 @@ socket_signals = SocketsSignals()
 class LineStored:
     __slots__ = ["text", "time"]
 
-    def __init__(self, text, time):
-        self.text = text
-        self.time = time or datetime.now()
+    def __init__(self, text: str, time: datetime | None) -> None:
+        self.text: str = text
+        self.time: datetime = time or datetime.now()
 
     def __repr__(self) -> str:
         return f"LineStored [{self.time.strftime(format="%Y-%m-%d_%H-%M-%S")}| {self.text}]"
@@ -52,20 +54,20 @@ class LinesTempStorage:
     last_active_date = None
     storage_time_limit = GeneralSettings.storage_time_limit
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.deque = deque()
         self.load_from_db()
 
-    def load_from_db(self):
+    def load_from_db(self) -> None:
         for data in linedb.load_lines():
             self.deque.append(LineStored(text=data[0], time=datetime.fromtimestamp(data[1])))
 
-    def append(self, x: LineStored):
+    def append(self, x: LineStored) -> None:
         self.deque.append(x)
         self.trim_extra()
         socket_signals.line_received.emit(x)
 
-    def trim_extra(self):
+    def trim_extra(self) -> None:
         last_active_date = LinesTempStorage.last_active_date or datetime.now()
         # print(f"{last_active_date = }")
         while self.deque:
@@ -76,7 +78,7 @@ class LinesTempStorage:
             else:
                 break
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[LineStored]:
         return self.deque.__iter__()
 
     def __repr__(self) -> str:
@@ -117,7 +119,7 @@ class WebsocketManagerThread(threading.Thread):
         self._event.wait()
         return self._loop
 
-    def stop_server(self):
+    def stop_server(self) -> None:
         logger.info("Stopping WebSocket Server")
         for task in self.tasks:
             task.cancel()
@@ -126,7 +128,7 @@ class WebsocketManagerThread(threading.Thread):
         socket_signals.ws_state.emit(0)
         socket_signals.listener_state.emit("all", 0)
 
-    async def send_to_texthooker(self):
+    async def send_to_texthooker(self) -> None:
         while True:
             try:
                 msg = await self.text_received.get()
@@ -135,13 +137,13 @@ class WebsocketManagerThread(threading.Thread):
                     return
                 for client in self.clients:
                     await client.send(msg)
-            except asyncio.CancelledError:  # noqa: PERF203
+            except asyncio.CancelledError:
                 break
             except Exception as e:
                 # TODO: Specificy exceptions
                 logger.warning(e)
 
-    async def msg_handler(self, websocket):
+    async def msg_handler(self, websocket) -> None:
         self.clients.add(websocket)
         socket_signals.ws_state.emit(2)
         try:
@@ -157,7 +159,7 @@ class WebsocketManagerThread(threading.Thread):
             self.clients.remove(websocket)
             socket_signals.ws_state.emit(1)
 
-    def run(self):
+    def run(self) -> None:
         async def start_server():
             while True:
                 try:
@@ -167,7 +169,7 @@ class WebsocketManagerThread(threading.Thread):
                         socket_signals.ws_state.emit(1)
                         self.main_task = asyncio.create_task(self.send_to_texthooker())
                         await self.main_task
-                except asyncio.CancelledError:  # noqa: PERF203
+                except asyncio.CancelledError:
                     logger.info("WebSocket Server: Cancelled")
                     break
                 except Exception as e:
@@ -180,7 +182,7 @@ class WebsocketManagerThread(threading.Thread):
                     break
 
 
-        async def main():
+        async def main() -> None:
             self._loop = asyncio.get_running_loop()
             # self._loop.set_debug(True)
             # self.text_received = asyncio.Queue()
@@ -191,11 +193,11 @@ class WebsocketManagerThread(threading.Thread):
 
         asyncio.run(main())
 
-    async def add_listener(self, url):
+    async def add_listener(self, url: str) -> None:
         task = asyncio.create_task(self.new_listener(url))
         self.tasks.append(task)
 
-    async def listener_loop(self, websocket):
+    async def listener_loop(self, websocket) -> None:
         while True:
             msg = await websocket.recv()
             if not msg:
@@ -216,7 +218,7 @@ class WebsocketManagerThread(threading.Thread):
                     ss_task = asyncio.create_task(asyncio.to_thread(_take_screenshot, line_time, wait_sec=0.2))
                     self.tasks.append(ss_task)
 
-    async def new_listener(self, url):
+    async def new_listener(self, url: str) -> None:
         is_Luna = False
         socket_signals.listener_state.emit(url, 1)
         while True:
@@ -228,7 +230,7 @@ class WebsocketManagerThread(threading.Thread):
                     socket_signals.listener_state.emit(url, 2)
                     logger.info("Listener %s: connected", url)
                     await self.listener_loop(websocket)
-            except asyncio.CancelledError:  # noqa: PERF203
+            except asyncio.CancelledError:
                 logger.info("Listener %s: Cancelled", url)
                 break
             except (OSError, ConnectionRefusedError, websockets.exceptions.ConnectionClosedError) as e:

@@ -70,10 +70,8 @@ class AnkiNote:
 class AnkiContext:
     previous_notes: set[int] = set()
     last_note: AnkiNote | None = None
-    # last_note_info: dict | None = None
-    # last_note_sentence_clean: str = ""
-    curr_status = AnkiStatus.STOPPED
-    start_session = datetime.now()
+    curr_status: AnkiStatus = AnkiStatus.STOPPED
+    start_session: datetime = datetime.now()
 
 
 class AnkiSignals(QObject):
@@ -82,7 +80,6 @@ class AnkiSignals(QObject):
     note_update_info = Signal(str)
     note_update_select_line = Signal(list)
     note_update_confirm = Signal(list, object, tuple, str)
-    # note_update_confirm_audio = Signal(list, list, tuple, str)
 
     wait_event = threading.Event()
     returned_value: Any = None
@@ -433,7 +430,7 @@ def check_anki_status():
         try:
             requestJson = json.dumps(request("version")).encode("utf-8")
             urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{AnkiSettings.port}", requestJson))
-        except (urllib.error.URLError, ConnectionResetError) as e:  # noqa: PERF203
+        except (urllib.error.URLError, ConnectionResetError) as e:
             if AnkiContext.curr_status != AnkiStatus.STARTED:
                 msg = f"AnkiConnect: {e}"
                 logger.error(msg)  # noqa: TRY400
