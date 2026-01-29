@@ -6,6 +6,7 @@ import soundfile as sf
 import inspect
 import json
 
+from util.platform_util import config_path
 from util.custom_typings import Session
 
 
@@ -408,9 +409,10 @@ class SessionDB:
                         "screen_region": tuple(json.loads(screen_region))
                     }
 
+database_path = config_path / "database.db"
 
-settings = Settings("database.db")
-imagedb = ImageDB("database.db")
-audiodb = AudioDB("database.db")
-linedb = LineDB("database.db")
-sessionsdb = SessionDB("database.db")
+settings = Settings(database_path)
+imagedb = ImageDB(database_path)
+audiodb = AudioDB(database_path)
+linedb = LineDB(database_path)
+sessionsdb = SessionDB(database_path)

@@ -1,6 +1,6 @@
 import Quartz
-import ApplicationServices
-import ScriptingBridge
+# import ApplicationServices
+# import ScriptingBridge
 from AppKit import (
     NSAutoreleasePool,
     NSRunLoop,

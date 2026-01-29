@@ -1,4 +1,10 @@
 import sys
+from  pathlib import Path
+
+if (main_path := Path(__file__).parent.resolve()) not in sys.path:
+    sys.path.insert(0, str(main_path))
+    # print(*sys.path, sep="\n")
+
 from datetime import datetime
 from time import sleep
 
@@ -57,13 +63,14 @@ from util.platform_util import (
     getAppWindows,
     platform,
     is_wayland,
+    config_path,
     Window,
 )
 
 if platform == "darwin":
     from util.AggregateDevice import createAggregateDevice, destroyAggregateDevice
 
-import util.sockets
+from util import sockets as util_sockets
 from util import audio
 from util import screenshot
 
@@ -89,7 +96,8 @@ import logging
 logger = logging.getLogger("app_logger")
 logger.setLevel(logging.DEBUG)
 
-fh = logging.FileHandler("last_run.log", mode="w")
+log_path = config_path / "last_run.log"
+fh = logging.FileHandler(str(log_path), mode="w")
 fh.setLevel(logging.DEBUG)
 
 ch = logging.StreamHandler()
@@ -336,7 +344,7 @@ class MainWindow(QMainWindow):
 
         # Screenshot Button
         self.rec_screen_button = QToolButton()
-        self.rec_screen_button.setIcon(QIcon("assets/screenshot_button.png"))
+        self.rec_screen_button.setIcon(QIcon(str(main_path / "assets/screenshot_button.png")))
         self.rec_screen_button.setIconSize(QSize(25, 25))
         self.rec_screen_button.setMinimumWidth(40)
         self.rec_screen_button.setMinimumHeight(40)
@@ -346,7 +354,7 @@ class MainWindow(QMainWindow):
 
         # Audio Button
         self.rec_audio_button = QToolButton()
-        self.rec_audio_button.setIcon(QIcon("assets/audio_button.png"))
+        self.rec_audio_button.setIcon(QIcon(str(main_path / "assets/audio_button.png")))
         self.rec_audio_button.setIconSize(QSize(25, 25))
         self.rec_audio_button.setMinimumWidth(40)
         self.rec_audio_button.setMinimumHeight(40)
@@ -356,7 +364,7 @@ class MainWindow(QMainWindow):
 
         # Screenshot/Audio Button
         self.rec_both_button = QToolButton()
-        self.rec_both_button.setIcon(QIcon("assets/screenshot_audio_button.png"))
+        self.rec_both_button.setIcon(QIcon(str(main_path / "assets/screenshot_audio_button.png")))
         self.rec_both_button.setIconSize(QSize(30, 30))
         self.rec_both_button.setMinimumWidth(40)
         self.rec_both_button.setMinimumHeight(40)
@@ -418,7 +426,7 @@ class MainWindow(QMainWindow):
         self.listwidget.setMinimumHeight(1)
         # self.listwidget.setAlternatingRowColors(True)
         # self.listwidget.addItems(["日本人が肉を日常食べるようになったのは明治以降である." for _ in range(20)])
-        self.listwidget.addItems([line.text for line in util.sockets.text_stored])
+        self.listwidget.addItems([line.text for line in util_sockets.text_stored])
         self.listwidget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.listwidget.itemSelectionChanged.connect(self.update_selected_lines)
 
@@ -603,9 +611,9 @@ class MainWindow(QMainWindow):
         else:
             self.audio_input_select.setCurrentText("**No Input Selected**")
 
-        util.sockets.socket_signals.ws_state.connect(self.update_ws_status)
-        util.sockets.socket_signals.listener_state.connect(self.update_listener_status)
-        util.sockets.socket_signals.line_received.connect(self.update_listwidget)
+        util_sockets.socket_signals.ws_state.connect(self.update_ws_status)
+        util_sockets.socket_signals.listener_state.connect(self.update_listener_status)
+        util_sockets.socket_signals.line_received.connect(self.update_listwidget)
 
         anki.anki_signals.anki_status.connect(self.update_anki_status)
         anki.anki_signals.last_note_changed.connect(self.update_anki_note_info)
@@ -613,7 +621,7 @@ class MainWindow(QMainWindow):
         anki.anki_signals.note_update_select_line.connect(self.openLineSelectionDialog)
         anki.anki_signals.note_update_confirm.connect(self.openConfirmDialog)
 
-        self.player = PlayerWorker(self.player_state)
+        self.player = None
         self.player_state.signals.cursor_update.connect(self.updateSlider)
         self.player_state.signals.playing_state_changed.connect(
             self.update_play_button
@@ -628,8 +636,8 @@ class MainWindow(QMainWindow):
             self.update_worker.signals.update_windows.connect(self.update_windows_combo)
 
         # Start the main websocket server and handle the connections that will listen for new lines
-        util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
-        util.sockets.ws_server.start()
+        util_sockets.ws_server = util_sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
+        util_sockets.ws_server.start()
 
         anki.start_monitoring_anki()
 
@@ -651,14 +659,14 @@ class MainWindow(QMainWindow):
             self.status_bar.addPermanentWidget(tmp_status)
 
     def update_listeners(self):
-        if util.sockets.ws_server is not None:
-            util.sockets.ws_server.stop_server()
-            util.sockets.ws_server.join()
-        util.sockets.ws_server = util.sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
+        if util_sockets.ws_server is not None:
+            util_sockets.ws_server.stop_server()
+            util_sockets.ws_server.join()
+        util_sockets.ws_server = util_sockets.WebsocketManagerThread(ws_port=settings.general.ws_port, listen_urls=settings.general.listen_urls)
 
         self.add_listeners_status()
 
-        util.sockets.ws_server.start()
+        util_sockets.ws_server.start()
 
     def open_config(self) -> None:
         if self.settings_window is not None:
@@ -727,7 +735,7 @@ class MainWindow(QMainWindow):
     def update_selected_lines(self):
         tmp_idx = sorted([a.row() for a in self.listwidget.selectedIndexes()])
         tmp_idx = tuple(tmp_idx)
-        util.sockets.selected_idxs = tmp_idx
+        util_sockets.selected_idxs = tmp_idx
 
     @Slot(list, int)
     def update_apps_combo(self, app_names, app_idx):
@@ -1040,7 +1048,7 @@ def update_all_dbs() -> None:
         audiodb.store_buffer_intervals(audio.buffers["primary"])
         audiodb.store_inactive_intervals(audio.buffers["primary"])
     logger.info("Saving lines")
-    linedb.store_lines(util.sockets.text_stored)
+    linedb.store_lines(util_sockets.text_stored)
     logger.info("Saving sessions")
     sessionsdb.store_sessions()
 
@@ -1079,8 +1087,8 @@ def main() -> None:
     if window.player_state.playing:
         window.player.stop()
 
-    if util.sockets.ws_server:
-        util.sockets.ws_server.stop_server()
+    if util_sockets.ws_server:
+        util_sockets.ws_server.stop_server()
 
     update_all_dbs()
 

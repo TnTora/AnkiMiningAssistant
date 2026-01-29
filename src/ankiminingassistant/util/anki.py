@@ -14,7 +14,7 @@ from enum import Enum
 
 from PySide6.QtCore import QObject, Signal
 
-import util.sockets
+from . import sockets as util_sockets
 from util import audio
 from util import screenshot
 from util.database import AnkiSettings, settings, sessionsdb
@@ -265,7 +265,7 @@ def search_linesdb(sentence: str) -> dict[str, Any] | None:
     found_lines = []
     found = False
 
-    text_copy = copy(util.sockets.text_stored)
+    text_copy = copy(util_sockets.text_stored)
 
     for line in text_copy:
 
@@ -347,8 +347,8 @@ def auto_update_note(*, update_img: bool = True, update_audio: bool = True, conf
 
     curr_time = datetime.now()
 
-    if util.sockets.selected_idxs:
-        selected_line = util.sockets.manual_line_selection(util.sockets.selected_idxs)
+    if util_sockets.selected_idxs:
+        selected_line = util_sockets.manual_line_selection(util_sockets.selected_idxs)
     else:
         selected_line = search_linesdb(AnkiContext.last_note.SentenceClean)
 

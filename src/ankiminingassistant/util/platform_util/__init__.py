@@ -1,11 +1,15 @@
 import sys
+from pathlib import Path
+from os import getenv
 
 platform = sys.platform
 is_wayland = False
 
-if platform == "linux":
+config_base = getenv("APPDATA") or getenv("XDG_CONFIG_HOME") or "~/.config"
+config_path = Path(config_base).expanduser() / "AnkiMiningAssistant"
+config_path.mkdir(parents=True, exist_ok=True)
 
-    from os import getenv
+if platform == "linux":
 
     is_wayland = (
         "wayland" in getenv("WAYLAND_DISPLAY", "").lower()
