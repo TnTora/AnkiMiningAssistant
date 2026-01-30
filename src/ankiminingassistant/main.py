@@ -64,7 +64,7 @@ from util.platform_util import (
     platform,
     is_wayland,
     config_path,
-    Window,
+    # Window,
 )
 
 if platform == "darwin":
@@ -256,8 +256,8 @@ class MainWindow(QMainWindow):
         self.with_lines_height = None
         self.apps = getAllApps()
         self.curr_app = None
-        self.windows: list[Window] = []
-        self.curr_win: Window | None = None
+        self.windows: list = []
+        self.curr_win = None
         self.audio_inputs, preferred_idx = audio.get_audio_inputs()
         self.audio_input = None
         self.player_state = audio.PlayerState()
