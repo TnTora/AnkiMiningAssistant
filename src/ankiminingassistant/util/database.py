@@ -6,8 +6,13 @@ import soundfile as sf
 import inspect
 import json
 
-from util.platform_util import config_path
 from util.custom_typings import Session
+
+from pathlib import Path
+from os import getenv
+
+config_base = getenv("APPDATA") or getenv("XDG_CONFIG_HOME") or "~/.config"
+config_path = Path(config_base).expanduser() / "AnkiMiningAssistant"
 
 
 class GeneralSettings:
