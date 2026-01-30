@@ -1,12 +1,7 @@
 from setuptools import Extension, setup
-from os import getenv
+import sys
 
-is_wayland = (
-    "wayland" in getenv("WAYLAND_DISPLAY", "").lower()
-    or "wayland" in getenv("XDG_SESSION_TYPE", "").lower()
-)
-
-if is_wayland:
+if sys.platform == "linux":
     setup(
         ext_modules=[
             Extension(
@@ -18,3 +13,5 @@ if is_wayland:
             ),
         ]
     )
+else:
+    setup()
