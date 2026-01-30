@@ -55,6 +55,13 @@ class AnkiNote:
 
         self.SentenceClean: str = cleanhtml(self.Sentence)
 
+    def __eq__(self, other) -> bool:
+        if isinstance(other, int):
+            return self.nid == other
+        if isinstance(other, AnkiNote):
+            return self.nid == other.nid
+        return False
+
     def update(self, fields: dict[str, str], tags: list[str] | None = None) -> None:
         if not fields:
             return
