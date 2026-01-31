@@ -314,7 +314,6 @@ def capture_screenshot(save_path: os.PathLike | str | None = None, win = None, s
         # construct Image from the data obtained using pipewire
         # TODO: get format from pipewire
         curr_frame = pipewire_util.get_curr_frame()
-        print("got_frame")
 
         if not curr_frame["data"]:
             print("No Frame available")

@@ -156,7 +156,7 @@ static PyObject *method_get_curr_frame(PyObject *self, PyObject *args) {
           printf("No frame data\n");
           bytes = Py_None;
         } else {
-          printf("curr_frame size %d\n", shared_data.curr_frame.chunk->size);
+          // printf("curr_frame size %d\n", shared_data.curr_frame.chunk->size);
           bytes = PyBytes_FromStringAndSize(shared_data.curr_frame.data, shared_data.curr_frame.chunk->size);
         }
 
@@ -191,7 +191,7 @@ static void on_process(void *userdata)
                 return;
 
         data->curr_frame = buf->datas[0];
-        printf("got a frame of size %d\n", buf->datas[0].chunk->size);
+        // printf("got a frame of size %d\n", buf->datas[0].chunk->size);
         // printf("got bytes: %s\n", (char *) buf->datas[0].data);
  
         pw_stream_queue_buffer(data->stream, b);
