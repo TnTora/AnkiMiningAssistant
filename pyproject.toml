@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AnkiMiningAssistant"
-version = "0.1" 
+version = "0.1.1" 
 description = "Tool to improve Anki sentence mining workflow."
 authors = [{ name = "TnTora" }]
 requires-python = ">=3.12.2,<3.13"
@@ -20,7 +20,7 @@ dependencies = [
     "torchaudio==2.2.2",
     "silero-vad==5.1.2",
     "pillow==11.1.0",
-    "numpy==1.26.4",
+    "numpy<2",
     "cffi==1.17.1",
     "pyobjc==11.0; platform_system == 'Darwin'",
     "PyWinCtl==0.4.1; platform_system == 'Linux'",
