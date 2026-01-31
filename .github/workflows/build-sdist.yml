@@ -18,6 +18,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
+      - name: Install pipewire
+        run: |
+          sudo apt-get update
+          sudo apt-get install libpipewire-0.3-dev
+
       - name: Build sdist
         run: uv build --sdist
 
