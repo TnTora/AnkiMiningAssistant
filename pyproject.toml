@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AnkiMiningAssistant"
-version = "0.1.1" 
+version = "0.1.2" 
 description = "Tool to improve Anki sentence mining workflow."
 authors = [{ name = "TnTora" }]
 requires-python = ">=3.12.2,<3.13"
