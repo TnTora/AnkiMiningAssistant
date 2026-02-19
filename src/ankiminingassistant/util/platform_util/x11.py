@@ -8,6 +8,7 @@ from io import BytesIO
 from PIL import ImageGrab, Image
 from Xlib.display import Display
 from Xlib import X
+from Xlib.error import BadWindow
 
 from math import sqrt
 
@@ -32,9 +33,12 @@ class App:
 def getAppWindows(app):
     windows = []
     for win in getAllWindows():
-        if win.getAppName() != app.localizedName():
+        try:
+            if win.getAppName() != app.localizedName():
+                continue
+            windows.append(win)
+        except BadWindow:
             continue
-        windows.append(win)
     return windows
 
 def getAllApps():
