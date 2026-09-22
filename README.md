@@ -1,3 +1,5 @@
+
+
 # AnkiMiningAssistant
 
 The aim of this project is to develop a cross-platoform software to facilitate the creation of useful Anki cards while sentence mining by automatically (or manually) adding screenshots and sentence audio.
@@ -7,6 +9,8 @@ Both screenshots and audio recording are obtained using platform dependant nativ
 > **NOTE**: This program is still in its early stages and has not been thoroughly tested, if you encounter any problem make sure to open an Issue. Apple Silicon mac and most linux distros heve never been tested.
 
 ## Demo
+
+https://github.com/user-attachments/assets/454570c5-b7b6-4351-979c-d6014fb1e3f2
 
 ## Features
 
@@ -63,8 +67,8 @@ Here are the necessary settings for the program to work, for all other refer to 
 Make sure the `WebSocket Port` selected does not conflict with any other software you are using. In most cases the default will work.
 
 Add a custom websocket server to listen to in order to receive text from the media you are mining from. Already included as default are:
-- localhost:6677 (used by [mpv_websocket](https://github.com/kuroahna/mpv_websocket))
-- localhost:2333 (used by [LunaTranslator](https://docs.lunatranslator.org/en/))
+- localhost:6677 (default used by [mpv_websocket_subs](https://github.com/TnTora/mpv_websocket_subs) and [mpv_websocket](https://github.com/kuroahna/mpv_websocket))
+- localhost:2333 (default used by [LunaTranslator](https://docs.lunatranslator.org/en/))
 
 ### Anki
 
