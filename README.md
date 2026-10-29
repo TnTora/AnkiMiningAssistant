@@ -40,6 +40,10 @@ https://github.com/user-attachments/assets/454570c5-b7b6-4351-979c-d6014fb1e3f2
 - Better support for multi monitor setups
 - Ability to update an older anki card instead of just the last one added
 - More flexible note type fields handling
+- Automatic audio transcription when using manual mode
+- Instructions page when opening the program for the first time
+- Updates checker
+- Ability to create new card from just audio buffer
 
 ## Installation
 
@@ -48,7 +52,11 @@ As of right now, the app is only available as a python package. In the future bi
 To install the python package it is recommended to use `uv tool`:
 
 - Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- If you are on linux you may need to install `libpipewire-0.3` and the `PortAudio` library.
+- If you are on `linux` you may need to install the following dependecies:
+    - `gcc`
+    - `pkg-config` or `pkgconf`
+    - `libpipewire-0.3`
+    - `PortAudio` library.
 - run the following command in terminal
 ```
 uv tool install AnkiMiningAssistant --pyhton 3.12
@@ -84,7 +92,7 @@ Add your preferred `Note Types` by selecting them from the drop down menu and pr
 For each note type you added you need to select the matching fields
 - `Expression`: word or expression learned in the card. Will be shown in main interface for the last note added
 - `Sentence`: sentence being mined. Will be shown in main interface for the last note added
-- `Sentence Audio`: audio recorder from this program will be added to this field
+- `Sentence Audio`: audio recorded from this program will be added to this field
 - `Picture`: screenshots from this program will be added to this field
 
 ### Audio
@@ -171,6 +179,6 @@ If you notice problems with screenshots being cutoff or scaled wrong, try clicki
 | [cffi](https://github.com/python-cffi/cffi) | MIT |
 | [pyobjc](https://github.com/ronaldoussoren/pyobjc) | MIT |
 | [PyWinCtl](https://github.com/Kalmat/PyWinCtl) | BSD-3-Clause |
-| [Xlib](https://github.com/python-xlib/python-xlib) | GNU Lesser General Public License v2 or later (LGPLv2+) (LGPLv2+) |
+| [python-xlib](https://github.com/python-xlib/python-xlib) | GNU Lesser General Public License v2 or later (LGPLv2+) (LGPLv2+) |
 | [jeepney](https://gitlab.com/takluyver/jeepney) | MIT |
 | [pywin32](https://github.com/mhammond/pywin32) | Python Software Foundation License (PSF)*<sup>[[1]](https://github.com/mhammond/pywin32/issues/1127#issuecomment-393364022)</sup> |
