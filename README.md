@@ -6,7 +6,7 @@ The aim of this project is to develop a cross-platoform software to facilitate t
 
 Both screenshots and audio recording are obtained using platform dependant native methods, meaning there is no need to install or setup third-party software, thus simplifying the setup process and reducing the total
 
-> **NOTE**: This program is still in its early stages and has not been thoroughly tested, if you encounter any problem make sure to open an Issue. Apple Silicon mac and most linux distros heve never been tested.
+> **NOTE**: This program is still in its early stages and has not been thoroughly tested, if you encounter any problem make sure to open an Issue. Apple Silicon mac and most linux distros have never been tested.
 
 ## Demo
 
@@ -15,6 +15,7 @@ https://github.com/user-attachments/assets/454570c5-b7b6-4351-979c-d6014fb1e3f2
 ## Features
 
 **Current**
+- Automatic and manual update of last card added
 - Native system audio monitoring
 - Native window screenshots
 - Select specific window for screenshots
@@ -102,6 +103,56 @@ If you notice problems with screenshots being cutoff or scaled wrong, try clicki
 
 
 ## Usage
+
+### Interface
+
+#### Session Settings
+> On Linux distros under Wayland, app/window selection will occur while choosing the source for the recording.
+
+- **Session name**: Use `+` and `-` button to add or delete a session. When adding a session the exact time of its creation is used as name but that can be edited at any moment.
+
+- **App**: Select the App that owns the window you wish to screenshot. If none is selected, a screenshot of the entire screen will be used.
+
+- **Window**: Select the window you wish to screenshot. If none is selected, a screenshot of the entire screen will be used.
+
+- **Audio Input**: Device used when monitoring audio. Loopback devices to record system audio should be available on all platform by default.
+
+- **Use screen region**: If selected, ignores window selection and takes a screenshot of a portion of the screen of your choosing.
+
+- **Continuous Recording**: By default recordings are paused after the specified time of voice inactivity in settings (default: 10 s). If this is toggled, recordings will not pause.
+
+#### Buttons
+- **Icon buttons**
+    - **Screenshot** (top): Add screenshot to Anki Note.
+
+    - **Audio** (middle): Add audio to Anki Note.
+
+    - **Screenshot/Audio** (bottom): Add screenshot and audio to Anki Note.
+
+- **Start Monitoring**: Start monitoring audio and saving screenshots at constant intervals (default: 1 s). The default buffer is set to 300s but can be changed in settings.
+
+- **Play**: Play/Pause current audio buffer content.
+
+- **Settings**: Open Settings
+
+- **Show Lines**: Show/Hide current lines available in database. Allow for selection of multiple consecutive lines (feature still in development).
+
+#### Anki Specific
+- **Anki Note Monitor**: Show `Expression` and `Sentence` for the anki note that will be modified.
+
+- **Auto Update**: automatically attempt to update a note as soon as it is added to Anki.
+
+- **Open in Browser**: open Anki note browser after updating the note
+
+- **Preview Note**: before updating note, show preview and allow user to adjust screenshot and audio timings.
+
+#### Status Indicators
+
+- **Anki**: Connection to Anki
+- **Listening**: Connection to outside websocket server to receive sentence text and timings.
+- **WS**: Local WebSocket server. Used to redirect text received from the websockets above.
+
+**RED** = Failed to start; **Orange** = Ready to connect; **GREEN** = Connected
 
 ## Dependencies
 
