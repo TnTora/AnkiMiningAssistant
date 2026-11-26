@@ -123,47 +123,67 @@ kAudioObjectPropertyScopeGlobal = int.from_bytes(b"glob", byteorder="big")
 kAudioObjectPropertyElementMaster = 0
 
 
+# Cast objc_msgSend to specify input. Needed on apple silicon.
+msgSend = _ffi.cast("id(*)(id, SEL)", _objc.objc_msgSend)
+msgSend_int = _ffi.cast("id(*)(id, SEL, int)", _objc.objc_msgSend)
+msgSend_bool = _ffi.cast("id(*)(id, SEL, bool)", _objc.objc_msgSend)
+msgSend_object = _ffi.cast("id(*)(id, SEL, id)", _objc.objc_msgSend)
+msgSend_object_ptr = _ffi.cast("id(*)(id, SEL, id, void*)", _objc.objc_msgSend)
+msgSend_CFString = _ffi.cast("id(*)(id, SEL, CFStringRef)", _objc.objc_msgSend)
+
+sel_alloc = _objc.sel_registerName(b"alloc")
+sel_init = _objc.sel_registerName(b"init")
+sel_release = _objc.sel_registerName(b"release")
+sel_autorelease = _objc.sel_registerName(b"autorelease")
+
+
 def createAggregateDevice(name: str = "SystemAudioRecorder", *, private: bool = True) -> tuple:
     # Should avoid leaking memory when using objc
     NSAutoreleasePool = _objc.objc_getClass(b"NSAutoreleasePool")
-    pool = _objc.objc_msgSend(NSAutoreleasePool, _objc.sel_registerName(b"alloc"))
-    pool = _objc.objc_msgSend(pool, _objc.sel_registerName(b"init"))
+    pool = msgSend(NSAutoreleasePool, sel_alloc)
+    pool = msgSend(pool, sel_init)
 
     # Initializing variables equivalent to obj-c @YES ans @NO
     NSNumber = _objc.objc_getClass(b"NSNumber")
-    YES = _objc.objc_msgSend(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", True))
-    NO = _objc.objc_msgSend(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", False))
+    YES = msgSend_int(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", True))
+    NO = msgSend_int(NSNumber, _objc.sel_registerName(b"numberWithBool:"), _ffi.cast("bool", False))
 
     # Initialize array that contains processes that should not be
     # captured. Leaving it empty will capture all system audio.
     NSArray = _objc.objc_getClass(b"NSArray")
-    processes = _objc.objc_msgSend(NSArray, _objc.sel_registerName(b"alloc"))
-    processes = _objc.objc_msgSend(processes, _objc.sel_registerName(b"init"))
+    processes = msgSend(NSArray, _objc.sel_registerName(b"array"))
 
     CATapDescription = _objc.objc_getClass(b"CATapDescription")
-    tap_desc = _objc.objc_msgSend(CATapDescription, _objc.sel_registerName(b"alloc"))
-    tap_desc = _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"initStereoGlobalTapButExcludeProcesses:"), processes)
-    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setMuteBehavior:"), _ffi.cast("int", 0))
-    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setName:"), str_to_CFString("GlobalTap"))
-    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setPrivate:"), _ffi.cast("bool", private))
-    _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"setExclusive:"), _ffi.cast("bool", True))
+    tap_desc = msgSend(CATapDescription, sel_alloc)
+    tap_desc = msgSend_object(tap_desc, _objc.sel_registerName(b"initStereoGlobalTapButExcludeProcesses:"), processes)
+    tap_desc = msgSend(tap_desc, sel_autorelease)
+    msgSend_int(tap_desc, _objc.sel_registerName(b"setMuteBehavior:"), _ffi.cast("int", 0))
+    msgSend_bool(tap_desc, _objc.sel_registerName(b"setPrivate:"), _ffi.cast("bool", private))
+    msgSend_CFString(tap_desc, _objc.sel_registerName(b"setName:"), str_to_CFString("GlobalTap"))
+    msgSend_bool(tap_desc, _objc.sel_registerName(b"setExclusive:"), _ffi.cast("bool", True))
+
 
     tap_id = _ffi.new("UInt32*")
     _ca.AudioHardwareCreateProcessTap(tap_desc, tap_id)
 
-    tap_uid = _objc.objc_msgSend(tap_desc, _objc.sel_registerName(b"UUID"))
-    tap_uid_string = _objc.objc_msgSend(tap_uid, _objc.sel_registerName(b"UUIDString"))
+    tap_uid = msgSend(tap_desc, _objc.sel_registerName(b"UUID"))
+    tap_uid_string = msgSend(tap_uid, _objc.sel_registerName(b"UUIDString"))
 
     tap_dict = _cf.CFDictionaryCreateMutable(_ffi.NULL, 0, _ffi.NULL, _ffi.NULL)
     _cf.CFDictionaryAddValue(tap_dict, kAudioSubTapUIDKey, tap_uid_string)
     _cf.CFDictionaryAddValue(tap_dict, kAudioSubTapDriftCompensationKey, YES)
 
-    taps = _objc.objc_msgSend(NSArray, _objc.sel_registerName(b"alloc"))
-    taps = _objc.objc_msgSend(taps, _objc.sel_registerName(b"initWithObjects:"), tap_dict, _ffi.NULL)
+    taps = msgSend(NSArray, sel_alloc)
+    taps = msgSend_object_ptr(NSArray, _objc.sel_registerName(b"arrayWithObjects:"), tap_dict, _ffi.NULL)
+
+    # Generate UUID for Aggregate device to avoid conflicts
+    NSUUID = _objc.objc_getClass(b"NSUUID")
+    uuid_str = msgSend(NSUUID, _objc.sel_registerName(b"UUID"))
+    uuid_str = msgSend(uuid_str, _objc.sel_registerName(b"UUIDString"))
 
     aggregate_device_dict = _cf.CFDictionaryCreateMutable(_ffi.NULL, 0, _ffi.NULL, _ffi.NULL)
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceNameKey, str_to_CFString(name))
-    _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceUIDKey, str_to_CFString(f"com.user.{name}"))
+    _ca.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceUIDKey, uuid_str)
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceTapListKey, taps)
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceTapAutoStartKey, NO)
     _cf.CFDictionaryAddValue(aggregate_device_dict, kAudioAggregateDeviceIsPrivateKey, YES if private else NO)
@@ -171,7 +191,7 @@ def createAggregateDevice(name: str = "SystemAudioRecorder", *, private: bool = 
     aggr_id = _ffi.new("UInt32*")
     stat = _ca.AudioHardwareCreateAggregateDevice(aggregate_device_dict, aggr_id)
 
-    _objc.objc_msgSend(NSAutoreleasePool, _objc.sel_registerName(b"release"))
+    msgSend(pool, _objc.sel_registerName(b"release"))
 
     if stat == 0:
         return aggr_id[0], tap_id[0]
